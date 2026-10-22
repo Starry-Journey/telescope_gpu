@@ -1,0 +1,37 @@
+# ---- build artifacts ----
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.d
+*.mod
+
+# ---- generated data / results ----
+data/
+results/
+theta_*deg/
+*.fits
+*.fits.gz
+inverse_result.txt
+*.png
+*.csv
+
+# ---- local / editor junk ----
+.vscode/settings.json.bak
+nano.save
+*.save
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ---- downloaded installers (not source) ----
+*.deb
