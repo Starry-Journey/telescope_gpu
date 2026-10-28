@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::printf("=== inverse_solve v2 ===\n");
+        std::printf("=== inverse_solve v2.1 ===\n");
         std::printf("data dir = %s\n", data_dir.c_str());
         std::printf("frames = %zu, image = %d x %d, stars = %d\n",
                     frames.images.size(), frames.img_size, frames.img_size,
@@ -49,21 +49,27 @@ int main(int argc, char** argv) {
         options.n_refine = cfg.solve_refine;
         options.seed = cfg.solve_seed;
         options.maxeval = cfg.solve_maxeval;
+        options.verbose = true;
 
         PhaseDiversitySolver solver(cfg.optics, frames.stars, data, frames.defocus,
                                     frames.truth, options);
         const SolveResult result = solver.solve();
+        if (!result.ok) {
+            std::fprintf(stderr, "inverse_solve: solver did not produce a result\n");
+            return 1;
+        }
 
+        const auto& active = active_zernike_indices();
         std::printf("\n=== 反演结果 ===\n");
-        std::printf("          true      recovered      error\n");
-        for (int k : {2, 6, 7}) {
-            std::printf("Z%-2d   %+9.4f   %+9.4f   %9.4f\n",
-                        k + 2, frames.truth[k], result.coeffs[k],
-                        std::fabs(result.coeffs[k] - frames.truth[k]));
+        std::printf("           Noll       true   recovered       error\n");
+        for (int k : active) {
+            std::printf("%-10s N%-3d  %+9.4f   %+9.4f   %9.4f\n",
+                        zernike_label(k), kZernikeNoll[k], frames.truth[k],
+                        result.coeffs[k], std::fabs(result.coeffs[k] - frames.truth[k]));
         }
         std::printf("wavefront RMS = %.4f lambda\n", result.wavefront_rms);
-        std::printf("final cost = %.6e (cost(true) = %.6e)\n",
-                    result.cost, result.cost_true);
+        std::printf("final cost = %.6e (cost(true) = %.6e, evaluations = %lld)\n",
+                    result.cost, result.cost_true, result.evaluations);
 
         if (result.pseudo_solution) {
             std::printf("\nWARNING: final cost 比 cost(true) 低超过 1%%。\n"
@@ -72,36 +78,56 @@ int main(int argc, char** argv) {
         }
 
         // 兼容旧版可视化脚本：6 个数字，一行。
+        bool result_written = false;
         if (std::FILE* fp = std::fopen(cfg.result_file.c_str(), "w")) {
             std::fprintf(fp, "# theta = %.4f\n", cfg.theta_deg);
             std::fprintf(fp, "# true_z4 true_z8 true_z9 recovered_z4 recovered_z8 recovered_z9\n");
             std::fprintf(fp, "%.6f %.6f %.6f %.6f %.6f %.6f\n",
                          frames.truth[2], frames.truth[6], frames.truth[7],
                          result.coeffs[2], result.coeffs[6], result.coeffs[7]);
+            result_written = std::ferror(fp) == 0;
             std::fclose(fp);
-            std::printf("saved: %s\n", cfg.result_file.c_str());
-        } else {
-            std::fprintf(stderr, "cannot write %s\n", cfg.result_file.c_str());
         }
+        if (!result_written) {
+            std::fprintf(stderr, "cannot write %s\n", cfg.result_file.c_str());
+            return 1;
+        }
+        std::printf("saved: %s\n", cfg.result_file.c_str());
 
+        bool report_written = false;
         if (std::FILE* fp = std::fopen(cfg.report_file.c_str(), "w")) {
-            std::fprintf(fp, "# telescope inverse report v2\n");
+            std::fprintf(fp, "# telescope inverse report v2.1\n");
             std::fprintf(fp, "theta_deg %.4f\n", cfg.theta_deg);
+            std::fprintf(fp, "data_dir %s\n", data_dir.c_str());
             std::fprintf(fp, "frames %zu\n", frames.images.size());
+            std::fprintf(fp, "background_mode %s\n", cfg.background_mode.c_str());
+            std::fprintf(fp, "backgrounds");
+            for (float bg : backgrounds) std::fprintf(fp, " %.4f", bg);
+            std::fprintf(fp, "\n");
+            std::fprintf(fp, "solve_starts %d\n", cfg.solve_starts);
+            std::fprintf(fp, "solve_refine %d\n", cfg.solve_refine);
+            std::fprintf(fp, "solve_seed %u\n", cfg.solve_seed);
+            std::fprintf(fp, "solve_maxeval %d\n", cfg.solve_maxeval);
+            std::fprintf(fp, "evaluations %lld\n", result.evaluations);
             std::fprintf(fp, "cost_true %.6e\n", result.cost_true);
             std::fprintf(fp, "cost_zero %.6e\n", result.cost_zero);
             std::fprintf(fp, "cost_final %.6e\n", result.cost);
             std::fprintf(fp, "pseudo_solution %d\n", result.pseudo_solution ? 1 : 0);
             std::fprintf(fp, "wavefront_rms_lambda %.6f\n", result.wavefront_rms);
-            std::fprintf(fp, "# noll truth recovered error\n");
-            for (int k : {2, 6, 7}) {
-                std::fprintf(fp, "%d %.6f %.6f %.6f\n", k + 2,
+            std::fprintf(fp, "# slot noll truth recovered error\n");
+            for (int k : active) {
+                std::fprintf(fp, "%d %d %.6f %.6f %.6f\n", k + 2, kZernikeNoll[k],
                              frames.truth[k], result.coeffs[k],
                              std::fabs(result.coeffs[k] - frames.truth[k]));
             }
+            report_written = std::ferror(fp) == 0;
             std::fclose(fp);
-            std::printf("saved: %s\n", cfg.report_file.c_str());
         }
+        if (!report_written) {
+            std::fprintf(stderr, "cannot write %s\n", cfg.report_file.c_str());
+            return 1;
+        }
+        std::printf("saved: %s\n", cfg.report_file.c_str());
 
         return 0;
     } catch (const std::exception& e) {

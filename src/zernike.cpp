@@ -48,7 +48,10 @@ PupilGrid make_pupil_grid(const OpticalParams& params) {
         }
     }
 
-    // 逐点计算 8 项 Noll Zernike。公式与 GPU kernel 必须完全一致。
+    // 逐点计算 8 个基函数槽位。槽位 -> 真实 Noll 编号见 types.hpp 的
+    // kZernikeNoll = {2,3,4,5,6,9,8,7}：前 5 项与 Noll 一致，后 3 项
+    // 是 [trefoil(Noll 9), coma-x(Noll 8), coma-y(Noll 7)]。这里保留
+    // 历史顺序，避免改变已有结果。
     for (int idx = 0; idx < total; ++idx) {
         if (!grid.mask[idx]) continue;
         const double r = grid.rho[idx];
@@ -57,14 +60,14 @@ PupilGrid make_pupil_grid(const OpticalParams& params) {
         const double r3 = r2 * r;
 
         const double z[kNumZernike] = {
-            2.0 * r * std::cos(t),                                  // Z2
-            2.0 * r * std::sin(t),                                  // Z3
-            std::sqrt(3.0) * (2.0 * r2 - 1.0),                      // Z4 defocus
-            std::sqrt(6.0) * r2 * std::sin(2.0 * t),                // Z5
-            std::sqrt(6.0) * r2 * std::cos(2.0 * t),                // Z6
-            std::sqrt(8.0) * r3 * std::sin(3.0 * t),                // Z7
-            std::sqrt(8.0) * (3.0 * r3 - 2.0 * r) * std::cos(t),    // Z8 coma x
-            std::sqrt(8.0) * (3.0 * r3 - 2.0 * r) * std::sin(t),    // Z9 coma y
+            2.0 * r * std::cos(t),                                  // 槽位 0 = Noll Z2
+            2.0 * r * std::sin(t),                                  // 槽位 1 = Noll Z3
+            std::sqrt(3.0) * (2.0 * r2 - 1.0),                      // 槽位 2 = Noll Z4
+            std::sqrt(6.0) * r2 * std::sin(2.0 * t),                // 槽位 3 = Noll Z5
+            std::sqrt(6.0) * r2 * std::cos(2.0 * t),                // 槽位 4 = Noll Z6
+            std::sqrt(8.0) * r3 * std::sin(3.0 * t),                // 槽位 5 = Noll Z9
+            std::sqrt(8.0) * (3.0 * r3 - 2.0 * r) * std::cos(t),    // 槽位 6 = Noll Z8
+            std::sqrt(8.0) * (3.0 * r3 - 2.0 * r) * std::sin(t),    // 槽位 7 = Noll Z7
         };
         for (int k = 0; k < kNumZernike; ++k) {
             grid.basis[static_cast<size_t>(k) * total + idx] = static_cast<float>(z[k]);
@@ -75,21 +78,24 @@ PupilGrid make_pupil_grid(const OpticalParams& params) {
 
 ZernikeCoeffs make_aberration_model(float theta_deg,
                                     bool include_astigmatism_trefoil) {
+    // 经验弯沉模型：以 theta=90°（delta=0）为参考角，delta=|theta-90°|。
+    // 注意这只是课题用的参数化模型，不是有限元/ Zemax 的物理仿真结果。
+    // c[6]/c[7] 是工程编号的 Z8/Z9（真实 Noll Z8/Z7，即 x/y 彗差）。
     const double theta = theta_deg * kPi / 180.0;
     const double delta = std::abs(theta - kPi / 2.0);
 
     ZernikeCoeffs c{};
     c[0] = 0.0f;
     c[1] = 0.0f;
-    c[2] = static_cast<float>(1.8 * std::sin(delta) + 0.2);  // Z4 defocus
+    c[2] = static_cast<float>(1.8 * std::sin(delta) + 0.2);  // 槽位 2 = Z4 离焦
     if (include_astigmatism_trefoil) {
         c[3] = static_cast<float>(0.20 * std::sin(2.0 * delta) + 0.05 * std::cos(theta));
         c[4] = static_cast<float>(0.18 * std::sin(2.0 * delta + kPi / 4.0) +
                                   0.05 * std::sin(theta));
         c[5] = static_cast<float>(0.08 * std::sin(3.0 * delta) + 0.02);
     }
-    c[6] = static_cast<float>(0.20 * std::sin(delta) + 0.03);             // Z8
-    c[7] = static_cast<float>(0.16 * std::sin(delta + kPi / 4.0) + 0.02); // Z9
+    c[6] = static_cast<float>(0.20 * std::sin(delta) + 0.03);              // Z8 彗差 x
+    c[7] = static_cast<float>(0.16 * std::sin(delta + kPi / 4.0) + 0.02);  // Z9 彗差 y
     return c;
 }
 

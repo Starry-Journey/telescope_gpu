@@ -37,3 +37,6 @@ nano.save
 
 # ---- downloaded installers (not source) ----
 *.deb
+
+# ---- docs figures are part of the deliverable ----
+!docs/figs/*.png

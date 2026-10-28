@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "/home/legend-star/telescope_gpu/src"
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.buildDirectory": "${workspaceFolder}/build"
 }

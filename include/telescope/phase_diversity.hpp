@@ -48,6 +48,8 @@ struct SolveOptions {
     unsigned seed = 12345;
     int maxeval = 2000;
     ZernikeBounds bounds = ZernikeBounds::default_bounds();
+    // 库默认不打印；app 显式打开。避免库在被复用时污染调用方 stdout。
+    bool verbose = false;
 };
 
 struct SolveResult {
@@ -61,11 +63,17 @@ struct SolveResult {
     // 不一致，反演结果是伪解。留 1% 余量是因为噪声数据上多拟合 3 个参数
     // 本来就会让代价略微下降。该诊断来自原始项目，保留并做成显式字段。
     bool pseudo_solution = false;
+    // 整个 solve() 期间调用正向模型的次数，用于性能/收敛分析。
+    long long evaluations = 0;
 };
 
+// 反演实际拟合的 Zernike 槽位：2/6/7，即工程编号 Z4/Z8/Z9。
+// app、测试、报告都从这里取，避免 "Z4/Z8/Z9" 散落在多个文件里。
+const std::vector<int>& active_zernike_indices();
+
 // 只拟合 Z4 / Z8 / Z9（数组下标 2 / 6 / 7）。
-// 扩展项集合时修改 src/phase_diversity.cu 的 active_indices()，并同步
-// kNumZernike、边界和正向模型的 Zernike 项集合。
+// 扩展项集合时修改 active_zernike_indices()，并同步 kNumZernike、
+// 边界和正向模型的 Zernike 项集合。
 class PhaseDiversitySolver {
 public:
     PhaseDiversitySolver(const OpticalParams& params,

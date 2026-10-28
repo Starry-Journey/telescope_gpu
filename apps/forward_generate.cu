@@ -25,6 +25,9 @@ int main(int argc, char** argv) {
         }
 
         const Config cfg = resolve_config(cli);
+        if (cfg.star_count <= 0) {
+            throw std::runtime_error("forward_generate needs star_count >= 1");
+        }
         const int img_size = cfg.optics.img_size;
         const int n_frames = static_cast<int>(cfg.defocus.size());
         const int img_total = cfg.optics.img_total();
@@ -32,7 +35,7 @@ int main(int argc, char** argv) {
 
         const ZernikeCoeffs truth = make_aberration_model(cfg.theta_deg);
 
-        std::printf("=== forward_generate v2 ===\n");
+        std::printf("=== forward_generate v2.1 ===\n");
         std::printf("theta = %.1f deg, image = %d x %d, frames = %d\n",
                     cfg.theta_deg, img_size, img_size, n_frames);
         std::printf("Z4=%.4f Z8=%.4f Z9=%.4f (Z5/Z6/Z7 = 0, see docs)\n",
@@ -46,8 +49,8 @@ int main(int argc, char** argv) {
             std::uniform_real_distribution<float> pos(margin, static_cast<float>(img_size) - margin);
             std::uniform_real_distribution<float> flux(cfg.flux_min, cfg.flux_max);
             for (int i = 0; i < cfg.star_count; ++i) {
-                // overlay kernel 用 roundf 把星点放到整数像素；这里先取整，
-                // 保证 FITS 头部记录的坐标与生成时实际使用的坐标完全一致。
+                // overlay kernel 用整数索引；这里先取整，保证 FITS 头部记录的
+                // 坐标与生成时实际使用的坐标完全一致。
                 stars.x.push_back(std::round(pos(rng)));
                 stars.y.push_back(std::round(pos(rng)));
                 stars.flux.push_back(flux(rng));
@@ -68,6 +71,9 @@ int main(int argc, char** argv) {
         fs::create_directories(out_dir);
 
         // 噪声模型：泊松(信号 + 背景) + 高斯读出噪声。
+        // 最后 max(value, 0) 模拟 ADC 不可能输出负计数；默认 background=200、
+        // read_noise=5 时 P(负值)≈0，因此不会引入可见正偏置。若把 background
+        // 调到接近 0，这个截断会像 v1 的预处理 clamp 一样产生系统性偏置。
         std::mt19937 noise_rng(static_cast<std::mt19937::result_type>(cfg.seed) + 1000u);
         std::poisson_distribution<int> poisson;
         std::normal_distribution<float> gaussian(0.0f, cfg.read_noise);

@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <string>
 #include <vector>
 
 #include "telescope/cpu_reference.hpp"
 #include "telescope/cuda_utils.cuh"
+#include "telescope/fits_io.hpp"
 #include "telescope/forward_model.cuh"
 #include "telescope/phase_diversity.hpp"
 
@@ -170,6 +173,7 @@ TEST(solver_cost_is_minimal_at_truth) {
     options.n_starts = 1;
     options.n_refine = 1;
     options.maxeval = 10;
+    options.verbose = false;
 
     PhaseDiversitySolver solver(params, stars, data, defocus, truth, options);
     const float cost_true = solver.evaluate(truth);
@@ -203,6 +207,7 @@ TEST(solver_recovers_truth_end_to_end) {
     options.n_refine = 2;
     options.seed = 7;
     options.maxeval = 400;
+    options.verbose = false;
 
     PhaseDiversitySolver solver(params, stars, data, defocus, truth, options);
     const SolveResult result = solver.solve();
@@ -213,6 +218,7 @@ TEST(solver_recovers_truth_end_to_end) {
     CHECK_NEAR(result.coeffs[6], truth[6], 0.05);
     CHECK_NEAR(result.coeffs[7], truth[7], 0.05);
     CHECK(result.wavefront_rms < 0.05f);
+    CHECK(result.evaluations > 0);
 }
 
 TEST(preprocess_subtracts_median_background) {
@@ -244,4 +250,105 @@ TEST(preprocess_subtracts_median_background) {
     CHECK_NEAR(sum1, 1.0, 1e-6);
     CHECK(normalized[5] > 0.99f);
     CHECK(normalized[16 + 6] > 0.99f);
+}
+
+TEST(preprocess_uses_true_even_median) {
+    // 4 个像素是偶数：真中位数 = (3+4)/2 = 3.5，旧实现会返回上中位数 4。
+    FrameSet frames;
+    frames.img_size = 2;
+    frames.defocus = {0.0f, 1.0f};
+    frames.images = {
+        std::vector<float>{2.0f, 3.0f, 4.0f, 13.0f},
+        std::vector<float>{20.0f, 21.0f, 22.0f, 31.0f},
+    };
+
+    std::vector<float> backgrounds;
+    const std::vector<float> normalized =
+        preprocess_frames(frames, BackgroundMode::kMedian, &backgrounds);
+    REQUIRE(backgrounds.size() == 2);
+    CHECK_NEAR(backgrounds[0], 3.5, 1e-6);
+    CHECK_NEAR(backgrounds[1], 21.5, 1e-6);
+    CHECK(normalized.size() == 8);
+}
+
+TEST(preprocess_rejects_zero_signal_frame) {
+    // 整帧等于背景：扣完背景总信号为 0，必须显式失败而不是静默跳过归一化。
+    FrameSet frames;
+    frames.img_size = 2;
+    frames.defocus = {0.0f, 1.0f};
+    frames.images = {
+        std::vector<float>(4, 10.0f),
+        std::vector<float>(4, 10.0f),
+    };
+    CHECK_THROWS(preprocess_frames(frames, BackgroundMode::kMedian, nullptr));
+}
+
+TEST(loader_rejects_inconsistent_theta) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "telescope_test_loader_mismatch";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    auto path_for = [&](float defocus) {
+        char name[512];
+        std::snprintf(name, sizeof(name),
+                      "%s/star_field_theta%03d_defocus_%+.1fwaves.fits",
+                      dir.string().c_str(), 45, static_cast<double>(defocus));
+        return std::string(name);
+    };
+
+    FitsMetadata meta;
+    meta.img_size = 8;
+    meta.theta_deg = 45.0f;
+    meta.background = 200.0f;
+    meta.star_x = {3.0f};
+    meta.star_y = {4.0f};
+    meta.star_flux = {1000.0f};
+    const std::vector<float> image(64, 200.0f);
+
+    meta.defocus = 0.0f;
+    REQUIRE(write_fits_image(path_for(0.0f), image, meta));
+    // 第二帧头部写成 46°，但文件名仍是 45°：加载器必须发现不一致。
+    meta.defocus = 1.0f;
+    meta.theta_deg = 46.0f;
+    REQUIRE(write_fits_image(path_for(1.0f), image, meta));
+
+    FrameSet frames;
+    std::string error;
+    const bool ok = load_frame_set(dir.string(), 45.0f, {0.0f, 1.0f}, frames, error);
+    CHECK(!ok);
+    CHECK(error.find("theta mismatch") != std::string::npos);
+    fs::remove_all(dir);
+}
+
+TEST(gpu_requires_stars_before_generate) {
+    if (!cuda_available()) {
+        std::printf("  (skipped: no CUDA device)\n");
+        return;
+    }
+
+    const OpticalParams params = small_params();
+    ForwardModelGPU gpu(params, 2);
+    DeviceBuffer<float> d_frames(static_cast<std::size_t>(2) * params.img_total());
+    const std::vector<float> defocus = {0.0f, 1.0f};
+    // 未调用 set_stars() 时生成星场图没有意义，应显式失败而不是静默输出全 0。
+    CHECK_THROWS(gpu.generate_frames(ZernikeCoeffs{}, defocus.data(), 2, d_frames.get()));
+}
+
+TEST(solver_rejects_bad_options) {
+    if (!cuda_available()) {
+        std::printf("  (skipped: no CUDA device)\n");
+        return;
+    }
+
+    const OpticalParams params = small_params();
+    const StarField stars = make_stars();
+    const std::vector<float> defocus = {0.0f, 1.0f};
+    const int n = static_cast<int>(defocus.size());
+    const std::vector<float> data(static_cast<std::size_t>(n) * params.img_total(), 0.0f);
+
+    SolveOptions options;
+    options.n_starts = 0;  // candidates.front() 会 UB，必须提前拒绝
+    PhaseDiversitySolver solver(params, stars, data, defocus, ZernikeCoeffs{}, options);
+    CHECK_THROWS(solver.solve());
 }

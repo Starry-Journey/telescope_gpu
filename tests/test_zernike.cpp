@@ -106,3 +106,22 @@ TEST(make_pupil_grid_rejects_bad_params) {
     bad_radius.pupil_radius = 1.5f;
     CHECK_THROWS(make_pupil_grid(bad_radius));
 }
+
+TEST(zernike_bounds_validation) {
+    ZernikeBounds bounds = ZernikeBounds::default_bounds();
+    CHECK(bounds.valid());
+    // 只允许搜索 Z4/Z8/Z9，三者都必须能取负值。
+    CHECK(bounds.lower[2] < 0.0f);
+    CHECK(bounds.lower[6] < 0.0f);
+    CHECK(bounds.lower[7] < 0.0f);
+
+    ZernikeBounds broken = bounds;
+    broken.lower[2] = 2.0f;
+    broken.upper[2] = -2.0f;
+    CHECK(!broken.valid());
+
+    // NaN 参与比较恒为 false，valid() 必须能识别。
+    broken = bounds;
+    broken.upper[6] = std::nanf("");
+    CHECK(!broken.valid());
+}

@@ -15,15 +15,16 @@
 #include "telescope/zernike.hpp"
 
 namespace telescope {
-namespace {
 
-constexpr int kBlock = 256;
-
-// 只拟合 Z4 / Z8 / Z9。数组下标 = Noll 编号 - 2。
-const std::vector<int>& active_indices() {
+// 反演实际拟合的槽位：2/6/7（工程编号 Z4/Z8/Z9）。
+const std::vector<int>& active_zernike_indices() {
     static const std::vector<int> kActive = {2, 6, 7};
     return kActive;
 }
+
+namespace {
+
+constexpr int kBlock = 256;
 
 __global__ void cost_reduce_kernel(const float* data,
                                    const float* model,
@@ -31,7 +32,7 @@ __global__ void cost_reduce_kernel(const float* data,
                                    int total,
                                    int n_frames) {
     const int frame = blockIdx.x;
-    if (frame >= n_frames) return;
+    if (frame >= n_frames || total <= 0) return;
 
     const float* a = data + static_cast<std::size_t>(frame) * total;
     const float* b = model + static_cast<std::size_t>(frame) * total;
@@ -53,18 +54,29 @@ __global__ void cost_reduce_kernel(const float* data,
 
 std::string frame_path(const std::string& dir, float theta_deg, float defocus) {
     char buf[512];
-    std::snprintf(buf, sizeof(buf),
-                  "%s/star_field_theta%03d_defocus_%+.1fwaves.fits",
-                  dir.c_str(), static_cast<int>(std::lround(theta_deg)),
-                  static_cast<double>(defocus));
+    const int n = std::snprintf(buf, sizeof(buf),
+                                "%s/star_field_theta%03d_defocus_%+.1fwaves.fits",
+                                dir.c_str(), static_cast<int>(std::lround(theta_deg)),
+                                static_cast<double>(defocus));
+    if (n < 0 || static_cast<std::size_t>(n) >= sizeof(buf)) {
+        throw std::runtime_error("frame_path: path too long for buffer");
+    }
     return std::string(buf);
 }
 
+// 真中位数：偶数个样本取中间两个的平均。原实现直接返回上中位数，
+// 在 65536 像素（偶数）时会产生半个像素量级的背景偏差。
 float median_of(std::vector<float> values) {
     if (values.empty()) return 0.0f;
-    const auto mid = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2);
-    std::nth_element(values.begin(), mid, values.end());
-    return *mid;
+    const std::size_t mid = values.size() / 2;
+    const auto mid_it = values.begin() + static_cast<std::ptrdiff_t>(mid);
+    std::nth_element(values.begin(), mid_it, values.end());
+    if (values.size() % 2 != 0) return *mid_it;
+
+    // 偶数：前半部分的最大值就是下中位数。
+    const float upper = *mid_it;
+    const float lower = *std::max_element(values.begin(), mid_it);
+    return 0.5f * (lower + upper);
 }
 
 }  // namespace
@@ -76,7 +88,7 @@ public:
          const std::vector<float>& data,
          const std::vector<float>& defocus,
          int n_frames)
-        : model(params, n_frames), host_defocus(defocus) {
+        : model(params, n_frames), host_defocus(defocus), host_costs(n_frames) {
         const int img_total = params.img_total();
         d_data.allocate(static_cast<std::size_t>(n_frames) * img_total);
         d_model.allocate(static_cast<std::size_t>(n_frames) * img_total);
@@ -88,9 +100,11 @@ public:
 
     ForwardModelGPU model;
     std::vector<float> host_defocus;
+    std::vector<float> host_costs;  // 复用，避免每次 evaluate 都分配
     DeviceBuffer<float> d_data;
     DeviceBuffer<float> d_model;
     DeviceBuffer<float> d_costs;
+    long long eval_count = 0;
 };
 
 PhaseDiversitySolver::PhaseDiversitySolver(const OpticalParams& params,
@@ -107,11 +121,27 @@ PhaseDiversitySolver::PhaseDiversitySolver(const OpticalParams& params,
       options_(options),
       n_frames_(static_cast<int>(defocus.size())),
       img_total_(params.img_total()) {
-    if (n_frames_ < 1) throw std::invalid_argument("need at least one frame");
+    if (n_frames_ < 2) {
+        throw std::invalid_argument("phase diversity needs at least 2 frames");
+    }
+    if (n_frames_ > kMaxFrames) {
+        throw std::invalid_argument("too many frames (kMaxFrames = 16)");
+    }
     if (data_.size() != static_cast<std::size_t>(n_frames_) * img_total_) {
         throw std::invalid_argument("data size does not match frames * img_size^2");
     }
-    if (!stars_.valid()) throw std::invalid_argument("invalid star table");
+    if (!stars_.valid() || stars_.size() <= 0) {
+        throw std::invalid_argument("invalid or empty star table");
+    }
+    if (!options_.bounds.valid()) {
+        throw std::invalid_argument("invalid Zernike bounds: lower must be <= upper");
+    }
+    for (float d : defocus_) {
+        if (!std::isfinite(d)) throw std::invalid_argument("defocus contains NaN/Inf");
+    }
+    for (float v : data_) {
+        if (!std::isfinite(v)) throw std::invalid_argument("data contains NaN/Inf");
+    }
     impl_ = new Impl(params_, stars_, data_, defocus_, n_frames_);
 }
 
@@ -120,6 +150,7 @@ PhaseDiversitySolver::~PhaseDiversitySolver() {
 }
 
 float PhaseDiversitySolver::evaluate(const ZernikeCoeffs& coeffs) {
+    ++impl_->eval_count;
     impl_->model.generate_frames(coeffs, impl_->host_defocus.data(), n_frames_,
                                  impl_->d_model.get());
     impl_->model.normalize_frames(impl_->d_model.get(), n_frames_);
@@ -129,11 +160,11 @@ float PhaseDiversitySolver::evaluate(const ZernikeCoeffs& coeffs) {
         img_total_, n_frames_);
     TEL_CUDA_CHECK(cudaGetLastError());
 
-    std::vector<float> costs(n_frames_);
-    TEL_CUDA_CHECK(cudaMemcpy(costs.data(), impl_->d_costs.get(),
-                              costs.size() * sizeof(float), cudaMemcpyDeviceToHost));
+    TEL_CUDA_CHECK(cudaMemcpy(impl_->host_costs.data(), impl_->d_costs.get(),
+                              impl_->host_costs.size() * sizeof(float),
+                              cudaMemcpyDeviceToHost));
     float total = 0.0f;
-    for (float c : costs) total += c;
+    for (float c : impl_->host_costs) total += c;
     return total;
 }
 
@@ -162,26 +193,34 @@ double nlopt_objective(const std::vector<double>& x,
 }  // namespace
 
 SolveResult PhaseDiversitySolver::solve() {
+    if (options_.n_starts < 1) throw std::invalid_argument("n_starts must be >= 1");
+    if (options_.n_refine < 1) throw std::invalid_argument("n_refine must be >= 1");
+    if (options_.maxeval < 1) throw std::invalid_argument("maxeval must be >= 1");
+
     SolveResult result;
-    const auto& active = active_indices();
+    const auto& active = active_zernike_indices();
+    const bool verbose = options_.verbose;
 
     result.cost_true = evaluate(truth_);
     result.cost_zero = evaluate(ZernikeCoeffs{});
 
-    std::printf("\n=== 代价函数诊断 ===\n");
-    std::printf("cost(true) = %.6e\n", result.cost_true);
-    std::printf("cost(zero) = %.6e\n", result.cost_zero);
+    if (verbose) {
+        std::printf("\n=== 代价函数诊断 ===\n");
+        std::printf("cost(true) = %.6e\n", result.cost_true);
+        std::printf("cost(zero) = %.6e\n", result.cost_zero);
+    }
 
     struct Candidate {
         ZernikeCoeffs coeffs;
         float cost;
     };
     std::vector<Candidate> candidates;
+    candidates.reserve(static_cast<std::size_t>(options_.n_starts));
 
     std::mt19937 rng(options_.seed);
     std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
 
-    std::printf("\n=== 多起点粗搜（%d 起点）===\n", options_.n_starts);
+    if (verbose) std::printf("\n=== 多起点粗搜（%d 起点）===\n", options_.n_starts);
     for (int s = 0; s < options_.n_starts; ++s) {
         ZernikeCoeffs coeffs{};
         for (int k : active) {
@@ -212,20 +251,23 @@ SolveResult PhaseDiversitySolver::solve() {
         }
 
         candidates.push_back({coeffs, best});
-        std::printf("start %2d: Z4=%.4f Z8=%.4f Z9=%.4f | cost=%.4e\n",
-                    s, coeffs[2], coeffs[6], coeffs[7], best);
+        if (verbose) {
+            std::printf("start %2d: Z4=%.4f Z8=%.4f Z9=%.4f | cost=%.4e\n",
+                        s, coeffs[2], coeffs[6], coeffs[7], best);
+        }
     }
 
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.cost < b.cost; });
 
-    std::printf("\n=== BOBYQA 精修（前 %d 名）===\n",
-                std::min(options_.n_refine, static_cast<int>(candidates.size())));
+    const int refine = std::min(options_.n_refine, static_cast<int>(candidates.size()));
+    if (verbose) {
+        std::printf("\n=== BOBYQA 精修（前 %d 名）===\n", refine);
+    }
 
     NloptContext ctx{this, &active};
     Candidate best_global = candidates.front();
 
-    const int refine = std::min(options_.n_refine, static_cast<int>(candidates.size()));
     for (int rank = 0; rank < refine; ++rank) {
         try {
             nlopt::opt opt(nlopt::LN_BOBYQA, static_cast<unsigned>(active.size()));
@@ -254,21 +296,25 @@ SolveResult PhaseDiversitySolver::solve() {
                 coeffs[active[a]] = static_cast<float>(x[a]);
             }
 
-            std::printf("rank %d: Z4=%.4f Z8=%.4f Z9=%.4f | cost=%.4e (status=%d)\n",
-                        rank, coeffs[2], coeffs[6], coeffs[7], minf,
-                        static_cast<int>(status));
+            if (verbose) {
+                std::printf("rank %d: Z4=%.4f Z8=%.4f Z9=%.4f | cost=%.4e (status=%d)\n",
+                            rank, coeffs[2], coeffs[6], coeffs[7], minf,
+                            static_cast<int>(status));
+            }
 
             if (minf < best_global.cost) {
                 best_global = {coeffs, static_cast<float>(minf)};
             }
         } catch (const std::exception& e) {
-            std::printf("rank %d: nlopt 异常: %s\n", rank, e.what());
+            // 某一起点精修失败不应让整个反演失败：保留粗搜候选继续。
+            if (verbose) std::printf("rank %d: nlopt 异常: %s\n", rank, e.what());
         }
     }
 
     result.coeffs = best_global.coeffs;
     result.cost = best_global.cost;
-    result.ok = true;
+    result.ok = !candidates.empty();
+    result.evaluations = impl_->eval_count;
 
     const PupilGrid grid = make_pupil_grid(params_);
     result.wavefront_rms = wavefront_rms(result.coeffs, truth_, grid);
@@ -285,6 +331,15 @@ bool load_frame_set(const std::string& data_dir,
                     const std::vector<float>& defocus,
                     FrameSet& out,
                     std::string& error) {
+    if (defocus.size() < 2 || defocus.size() > static_cast<std::size_t>(kMaxFrames)) {
+        error = "defocus needs 2..16 frames";
+        return false;
+    }
+    if (!std::isfinite(theta_deg)) {
+        error = "theta_deg must be finite";
+        return false;
+    }
+
     out = FrameSet{};
     out.defocus = defocus;
 
@@ -296,6 +351,25 @@ bool load_frame_set(const std::string& data_dir,
             error = "cannot read FITS: " + path;
             return false;
         }
+        if (meta.img_size <= 0 ||
+            image.size() != static_cast<std::size_t>(meta.img_size) * meta.img_size) {
+            error = "corrupt image size in " + path;
+            return false;
+        }
+        // 头部自描述必须和本次请求一致，否则很容易把不同角度/离焦的帧
+        // 混在一起，得到“看起来收敛”的错误结果。
+        if (std::fabs(meta.theta_deg - theta_deg) > 0.5f) {
+            error = "theta mismatch in " + path + ": header " +
+                    std::to_string(meta.theta_deg) + " vs requested " +
+                    std::to_string(theta_deg);
+            return false;
+        }
+        if (std::fabs(meta.defocus - defocus[f]) > 0.05f) {
+            error = "defocus mismatch in " + path + ": header " +
+                    std::to_string(meta.defocus) + " vs requested " +
+                    std::to_string(defocus[f]);
+            return false;
+        }
 
         if (f == 0) {
             out.img_size = meta.img_size;
@@ -304,9 +378,22 @@ bool load_frame_set(const std::string& data_dir,
             out.stars.x = meta.star_x;
             out.stars.y = meta.star_y;
             out.stars.flux = meta.star_flux;
-        } else if (meta.img_size != out.img_size) {
-            error = "inconsistent image size in " + path;
-            return false;
+        } else {
+            if (meta.img_size != out.img_size) {
+                error = "inconsistent image size in " + path;
+                return false;
+            }
+            if (meta.star_x != out.stars.x || meta.star_y != out.stars.y ||
+                meta.star_flux != out.stars.flux) {
+                error = "star table differs between frames: " + path;
+                return false;
+            }
+            for (int k = 0; k < kNumZernike; ++k) {
+                if (std::fabs(meta.zernike[k] - out.truth[k]) > 1e-4f) {
+                    error = "truth Zernike differs between frames: " + path;
+                    return false;
+                }
+            }
         }
 
         out.header_backgrounds.push_back(meta.background);
@@ -330,6 +417,13 @@ std::vector<float> preprocess_frames(const FrameSet& frames,
                                      std::vector<float>* frame_backgrounds) {
     const int n = static_cast<int>(frames.images.size());
     const int img_total = frames.img_size * frames.img_size;
+    if (n < 1 || img_total <= 0) {
+        throw std::invalid_argument("preprocess_frames: empty frame set");
+    }
+    if (!frames.defocus.empty() && static_cast<int>(frames.defocus.size()) != n) {
+        throw std::invalid_argument("preprocess_frames: defocus/images size mismatch");
+    }
+
     std::vector<float> out(static_cast<std::size_t>(n) * img_total, 0.0f);
     if (frame_backgrounds) frame_backgrounds->assign(n, 0.0f);
 
@@ -365,11 +459,15 @@ std::vector<float> preprocess_frames(const FrameSet& frames,
             out[static_cast<std::size_t>(f) * img_total + i] = v;
             sum += v;
         }
-        if (sum > 1e-12f) {
-            const float inv = 1.0f / sum;
-            for (int i = 0; i < img_total; ++i) {
-                out[static_cast<std::size_t>(f) * img_total + i] *= inv;
-            }
+        // 旧实现 sum<=0 时静默跳过归一化，导致该帧量纲和其他帧不同，
+        // 代价函数被单帧主导。这里显式失败，让调用方看到坏数据。
+        if (!std::isfinite(sum) || sum <= 1e-12f) {
+            throw std::runtime_error("frame " + std::to_string(f) +
+                                     " has non-positive total signal; check background");
+        }
+        const float inv = 1.0f / sum;
+        for (int i = 0; i < img_total; ++i) {
+            out[static_cast<std::size_t>(f) * img_total + i] *= inv;
         }
     }
     return out;

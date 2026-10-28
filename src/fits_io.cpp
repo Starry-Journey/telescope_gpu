@@ -1,10 +1,13 @@
 #include "telescope/fits_io.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -21,19 +24,44 @@ std::string trim(const std::string& s) {
     return s.substr(first, last - first + 1);
 }
 
-// 写一张 FITS 头卡：关键字左对齐 8 列，第 9 列 '='，值从第 11 列开始。
+// 写一张 FITS 头卡：关键字左对齐 8 列，第 9 列 '='，值区为第 11..30 列。
+// 逻辑值/数值按 FITS 标准右对齐（如 SIMPLE 的 T 在第 30 列），
+// 字符串（以单引号开头）左对齐。左对齐数值虽然能被 astropy 读，
+// 但会触发 "SIMPLE card ... doesn't respect the FITS Standard" 警告。
 void write_card(std::FILE* fp, const char* key, const std::string& value) {
     std::array<char, kCardSize> card;
     card.fill(' ');
 
     const std::size_t klen = std::strlen(key);
-    if (klen > 8) return;  // 调用方保证关键字合法
+    if (klen == 0 || klen > 8) {
+        throw std::invalid_argument(std::string("FITS keyword must be 1..8 chars: ") + key);
+    }
+    // FITS 值区只有 70 列，超长会静默截断成坏卡；这里直接报错。
+    if (value.size() > 70) {
+        throw std::invalid_argument(std::string("FITS value too long for card: ") + value);
+    }
     std::memcpy(card.data(), key, klen);
     card[8] = '=';
     card[9] = ' ';
 
-    const std::size_t vlen = std::min<std::size_t>(value.size(), 70);
-    std::memcpy(card.data() + 10, value.data(), vlen);
+    const bool quoted = !value.empty() && value.front() == '\'';
+    const bool logical = value == "T" || value == "F";
+    const bool numeric = !value.empty() &&
+                         (std::isdigit(static_cast<unsigned char>(value.front())) ||
+                          value.front() == '+' || value.front() == '-' || value.front() == '.');
+    if (quoted) {
+        std::memcpy(card.data() + 10, value.data(), value.size());
+    } else if (logical || numeric) {
+        // 值区 20 列：列 11..30，即下标 10..29；右对齐。
+        if (value.size() > 20) {
+            throw std::invalid_argument(std::string("FITS numeric value too long: ") + value);
+        }
+        const std::size_t start = 30 - value.size();
+        std::memcpy(card.data() + start, value.data(), value.size());
+    } else {
+        // 其他（如纯字符串但调用方忘了加引号）保持左对齐。
+        std::memcpy(card.data() + 10, value.data(), value.size());
+    }
     std::fwrite(card.data(), 1, kCardSize, fp);
 }
 
@@ -55,9 +83,10 @@ void pad_to_block(std::FILE* fp, char fill) {
 }
 
 std::string card_value(const std::string& card) {
-    if (card.size() < 10) return "";
-    // 标准卡：KEY....= value。也容忍 KEY....value 的非标准写法。
-    std::string v = card.substr(9);
+    if (card.size() < 9) return "";
+    // 标准卡：KEY(8 列) + '=' + value。也容忍 KEY....value 的非标准写法，
+    // 但必须从第 9 列开始取，不能先 substr(9) 再找 '='。
+    std::string v = card.substr(8);
     const auto eq = v.find('=');
     if (eq != std::string::npos) v = v.substr(eq + 1);
     v = trim(v);
@@ -78,6 +107,8 @@ bool parse_int(const std::string& card, int& out) {
     char* end = nullptr;
     const long x = std::strtol(v.c_str(), &end, 10);
     if (end == v.c_str()) return false;
+    while (*end == ' ') ++end;
+    if (*end != '\0' && *end != '/') return false;  // 允许 FITS 行内注释 "/ ..."
     out = static_cast<int>(x);
     return true;
 }
@@ -88,6 +119,8 @@ bool parse_float(const std::string& card, float& out) {
     char* end = nullptr;
     const double x = std::strtod(v.c_str(), &end);
     if (end == v.c_str()) return false;
+    while (*end == ' ') ++end;
+    if (*end != '\0' && *end != '/') return false;
     out = static_cast<float>(x);
     return true;
 }
@@ -164,7 +197,8 @@ bool write_fits_image(const std::string& path,
     }
     const std::size_t written = std::fwrite(out.data(), sizeof(float), out.size(), fp);
     pad_to_block(fp, 0);
-    const bool ok = (written == out.size());
+    const bool io_error = std::ferror(fp) != 0;
+    const bool ok = (written == out.size()) && !io_error;
     std::fclose(fp);
     return ok;
 }

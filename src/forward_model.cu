@@ -1,7 +1,9 @@
 #include "telescope/forward_model.cuh"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
+#include <vector>
 
 #include "telescope/zernike.hpp"
 
@@ -21,6 +23,14 @@ __global__ void pupil_frames_kernel(cufftComplex* pupil,
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const int total = fft_size * fft_size;
     const int frame = blockIdx.y;
+
+    // 8 个系数放进 shared memory：每个 block 只读一次全局内存，
+    // 而不是每个线程都读 8 次（512²×5 帧时是千万级重复 load）。
+    // 注意：__syncthreads 必须在任何非一致 return 之前执行。
+    __shared__ float s_coeffs[kNumZernike];
+    if (threadIdx.x < kNumZernike) s_coeffs[threadIdx.x] = coeffs[threadIdx.x];
+    __syncthreads();
+
     if (idx >= total || frame >= n_frames) return;
 
     const int pos = frame * total + idx;
@@ -31,13 +41,16 @@ __global__ void pupil_frames_kernel(cufftComplex* pupil,
 
     float phase = 0.0f;
     for (int k = 0; k < kNumZernike; ++k) {
-        float c = coeffs[k];
-        if (k == 2) c += defocus[frame];  // Z4 = defocus
-        phase += c * basis[k * total + idx];
+        float c = s_coeffs[k];
+        if (k == 2) c += defocus[frame];  // 槽位 2 = Z4 离焦
+        phase += c * basis[static_cast<std::size_t>(k) * total + idx];
     }
 
-    const float angle = 2.0f * kPi * phase;
-    pupil[pos] = make_cuFloatComplex(cosf(angle), sinf(angle));
+    // sincosf 一次算 cos/sin，比分别调用 cosf+sinf 少一半三角函数开销。
+    float s = 0.0f;
+    float c = 0.0f;
+    sincosf(2.0f * kPi * phase, &s, &c);
+    pupil[pos] = make_cuFloatComplex(c, s);
 }
 
 // PSF = |FFT|^2 / N^2，含 fftshift（把零频移到图像中心）。
@@ -88,8 +101,8 @@ __global__ void downsample_frames_kernel(float* psf_down,
 
 __global__ void overlay_frames_kernel(float* images,
                                       const float* psf_frames,
-                                      const float* star_x,
-                                      const float* star_y,
+                                      const int* star_ix,
+                                      const int* star_iy,
                                       const float* star_flux,
                                       int n_stars,
                                       int n_frames,
@@ -106,10 +119,9 @@ __global__ void overlay_frames_kernel(float* images,
 
     float sum = 0.0f;
     for (int s = 0; s < n_stars; ++s) {
-        const int ix = static_cast<int>(roundf(star_x[s]));
-        const int iy = static_cast<int>(roundf(star_y[s]));
-        const int psf_x = px - ix + half;
-        const int psf_y = py - iy + half;
+        // 坐标在 set_stars() 里已取整，这里直接做整数索引。
+        const int psf_x = px - star_ix[s] + half;
+        const int psf_y = py - star_iy[s] + half;
         if (psf_x >= 0 && psf_x < img_size && psf_y >= 0 && psf_y < img_size) {
             sum += star_flux[s] * psf[psf_y * img_size + psf_x];
         }
@@ -123,7 +135,7 @@ __global__ void reduce_sum_kernel(const float* data,
                                   int total,
                                   int n_frames) {
     const int frame = blockIdx.x;
-    if (frame >= n_frames) return;
+    if (frame >= n_frames || total <= 0) return;
 
     const float* p = data + static_cast<std::size_t>(frame) * total;
     float s = 0.0f;
@@ -184,16 +196,29 @@ ForwardModelGPU::ForwardModelGPU(const OpticalParams& params, int max_frames)
     d_sums_.allocate(frames);
 
     TEL_CUFFT_CHECK(cufftPlan2d(&plan_single_, n, n, CUFFT_C2C));
+    // 批量 plan 延迟到第一次 run_psf_frames() 创建，按实际帧数缓存。
+}
 
+cufftHandle ForwardModelGPU::batch_plan(int n_frames) {
+    auto it = batch_plans_.find(n_frames);
+    if (it != batch_plans_.end()) return it->second;
+
+    const int n = params_.fft_size();
+    const int total = params_.fft_total();
     int dims[2] = {n, n};
-    TEL_CUFFT_CHECK(cufftPlanMany(&plan_batch_, 2, dims,
+    cufftHandle plan = 0;
+    TEL_CUFFT_CHECK(cufftPlanMany(&plan, 2, dims,
                                   dims, 1, total,
                                   dims, 1, total,
-                                  CUFFT_C2C, max_frames_));
+                                  CUFFT_C2C, n_frames));
+    batch_plans_.emplace(n_frames, plan);
+    return plan;
 }
 
 ForwardModelGPU::~ForwardModelGPU() {
-    if (plan_batch_) cufftDestroy(plan_batch_);
+    for (auto& entry : batch_plans_) {
+        if (entry.second) cufftDestroy(entry.second);
+    }
     if (plan_single_) cufftDestroy(plan_single_);
 }
 
@@ -203,19 +228,29 @@ void ForwardModelGPU::set_stars(const StarField& stars) {
     }
     star_count_ = stars.size();
     if (star_count_ == 0) {
-        d_star_x_.reset();
-        d_star_y_.reset();
+        d_star_ix_.reset();
+        d_star_iy_.reset();
         d_star_flux_.reset();
         return;
     }
 
-    const std::size_t bytes = static_cast<std::size_t>(star_count_) * sizeof(float);
-    d_star_x_.allocate(star_count_);
-    d_star_y_.allocate(star_count_);
-    d_star_flux_.allocate(star_count_);
-    TEL_CUDA_CHECK(cudaMemcpy(d_star_x_.get(), stars.x.data(), bytes, cudaMemcpyHostToDevice));
-    TEL_CUDA_CHECK(cudaMemcpy(d_star_y_.get(), stars.y.data(), bytes, cudaMemcpyHostToDevice));
-    TEL_CUDA_CHECK(cudaMemcpy(d_star_flux_.get(), stars.flux.data(), bytes, cudaMemcpyHostToDevice));
+    // 只在上传时取整一次；kernel 热循环里不再做 roundf。
+    std::vector<int> ix(static_cast<std::size_t>(star_count_));
+    std::vector<int> iy(static_cast<std::size_t>(star_count_));
+    for (int s = 0; s < star_count_; ++s) {
+        ix[static_cast<std::size_t>(s)] = static_cast<int>(std::lround(stars.x[s]));
+        iy[static_cast<std::size_t>(s)] = static_cast<int>(std::lround(stars.y[s]));
+    }
+
+    d_star_ix_.allocate(ix.size());
+    d_star_iy_.allocate(iy.size());
+    d_star_flux_.allocate(static_cast<std::size_t>(star_count_));
+    TEL_CUDA_CHECK(cudaMemcpy(d_star_ix_.get(), ix.data(),
+                              ix.size() * sizeof(int), cudaMemcpyHostToDevice));
+    TEL_CUDA_CHECK(cudaMemcpy(d_star_iy_.get(), iy.data(),
+                              iy.size() * sizeof(int), cudaMemcpyHostToDevice));
+    TEL_CUDA_CHECK(cudaMemcpy(d_star_flux_.get(), stars.flux.data(),
+                              stars.flux.size() * sizeof(float), cudaMemcpyHostToDevice));
 }
 
 void ForwardModelGPU::run_psf_frames(const ZernikeCoeffs& coeffs,
@@ -244,8 +279,8 @@ void ForwardModelGPU::run_psf_frames(const ZernikeCoeffs& coeffs,
         TEL_CUFFT_CHECK(cufftExecC2C(plan_single_, d_pupil_.get(), d_fft_.get(),
                                      CUFFT_FORWARD));
     } else {
-        // planMany 在构造时固定 batch = max_frames_；多算的帧会被后续 kernel 忽略。
-        TEL_CUFFT_CHECK(cufftExecC2C(plan_batch_, d_pupil_.get(), d_fft_.get(),
+        // 按实际 n_frames 取/建 plan，不再固定 batch=max_frames。
+        TEL_CUFFT_CHECK(cufftExecC2C(batch_plan(n_frames), d_pupil_.get(), d_fft_.get(),
                                      CUFFT_FORWARD));
     }
 
@@ -281,13 +316,16 @@ void ForwardModelGPU::generate_image(const ZernikeCoeffs& coeffs,
                                      float defocus,
                                      float* d_image_out) {
     if (!d_image_out) throw std::invalid_argument("d_image_out is null");
+    if (star_count_ <= 0) {
+        throw std::runtime_error("generate_image: call set_stars() with >=1 star first");
+    }
     run_psf_frames(coeffs, &defocus, 1);
 
     const int img_total = params_.img_total();
     const dim3 grid(div_up(img_total, kBlock), 1);
     overlay_frames_kernel<<<grid, kBlock>>>(
         d_image_out, d_psf_down_.get(),
-        d_star_x_.get(), d_star_y_.get(), d_star_flux_.get(),
+        d_star_ix_.get(), d_star_iy_.get(), d_star_flux_.get(),
         star_count_, 1, params_.img_size);
     TEL_CUDA_CHECK(cudaGetLastError());
 }
@@ -298,6 +336,9 @@ void ForwardModelGPU::generate_frames(const ZernikeCoeffs& coeffs,
                                       float* d_frames_out) {
     if (!d_frames_out) throw std::invalid_argument("d_frames_out is null");
     if (!h_defocus) throw std::invalid_argument("h_defocus is null");
+    if (star_count_ <= 0) {
+        throw std::runtime_error("generate_frames: call set_stars() with >=1 star first");
+    }
 
     run_psf_frames(coeffs, h_defocus, n_frames);
 
@@ -305,7 +346,7 @@ void ForwardModelGPU::generate_frames(const ZernikeCoeffs& coeffs,
     const dim3 grid(div_up(img_total, kBlock), n_frames);
     overlay_frames_kernel<<<grid, kBlock>>>(
         d_frames_out, d_psf_down_.get(),
-        d_star_x_.get(), d_star_y_.get(), d_star_flux_.get(),
+        d_star_ix_.get(), d_star_iy_.get(), d_star_flux_.get(),
         star_count_, n_frames, params_.img_size);
     TEL_CUDA_CHECK(cudaGetLastError());
 }

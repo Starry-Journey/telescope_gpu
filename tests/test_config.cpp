@@ -90,6 +90,36 @@ TEST(config_rejects_bad_defocus) {
     std::filesystem::remove(path);
 }
 
+TEST(config_rejects_non_finite_theta) {
+    const std::string path = write_temp_config(
+        "telescope_test_nan_theta.conf", "theta_deg = nan\n");
+    CHECK_THROWS(load_config_file(path));
+    std::filesystem::remove(path);
+}
+
+TEST(config_rejects_too_many_stars) {
+    // FITS 头部只有 STAR00..STAR99，超过 100 颗星写不进去。
+    const std::string path = write_temp_config(
+        "telescope_test_many_stars.conf", "star_count = 101\n");
+    CHECK_THROWS(load_config_file(path));
+    std::filesystem::remove(path);
+}
+
+TEST(config_rejects_negative_solve_seed) {
+    // std::stoul("-1") 会回绕，必须在 to_uint 里显式拒绝。
+    const std::string path = write_temp_config(
+        "telescope_test_neg_seed.conf", "solve_seed = -1\n");
+    CHECK_THROWS(load_config_file(path));
+    std::filesystem::remove(path);
+}
+
+TEST(config_rejects_huge_flux) {
+    const std::string path = write_temp_config(
+        "telescope_test_huge_flux.conf", "flux_max = 1e9\n");
+    CHECK_THROWS(load_config_file(path));
+    std::filesystem::remove(path);
+}
+
 TEST(config_default_data_dir) {
     Config cfg;
     cfg.theta_deg = 45.0f;

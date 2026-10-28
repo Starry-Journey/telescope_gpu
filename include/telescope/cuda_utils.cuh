@@ -63,6 +63,7 @@ public:
     }
 
     void allocate(std::size_t count) {
+        if (count == count_ && ptr_ != nullptr) return;  // 热路径重复调用不重新分配
         reset();
         if (count == 0) return;
         TEL_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&ptr_), count * sizeof(T)));
@@ -80,7 +81,11 @@ public:
     T* get() const { return ptr_; }
     T** addr() { return &ptr_; }
     std::size_t count() const { return count_; }
-    void memset_zero() { TEL_CUDA_CHECK(cudaMemset(ptr_, 0, count_ * sizeof(T))); }
+    void memset_zero() {
+        if (ptr_ && count_ > 0) {
+            TEL_CUDA_CHECK(cudaMemset(ptr_, 0, count_ * sizeof(T)));
+        }
+    }
 
 private:
     T* ptr_ = nullptr;

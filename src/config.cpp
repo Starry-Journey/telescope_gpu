@@ -49,6 +49,10 @@ int to_int(const std::string& value, const std::string& where) {
 }
 
 unsigned to_uint(const std::string& value, const std::string& where) {
+    // std::stoul("-1") 会回绕成 ULONG_MAX 而不抛异常，必须显式拒绝负号。
+    if (!value.empty() && value[0] == '-') {
+        throw std::runtime_error(where + ": expected unsigned int, got '" + value + "'");
+    }
     try {
         std::size_t used = 0;
         const unsigned long v = std::stoul(value, &used);
@@ -126,6 +130,9 @@ void set_value(Config& cfg, const std::string& raw_key, const std::string& raw_v
 void validate(const Config& cfg) {
     if (cfg.optics.img_size <= 0) throw std::runtime_error("img_size must be positive");
     if (cfg.optics.oversample <= 0) throw std::runtime_error("oversample must be positive");
+    if (cfg.optics.img_size > 4096 || cfg.optics.oversample > 8) {
+        throw std::runtime_error("img_size/oversample too large (img_size <= 4096, oversample <= 8)");
+    }
     if (!(cfg.optics.pupil_radius > 0.0f && cfg.optics.pupil_radius <= 1.0f)) {
         throw std::runtime_error("pupil_radius must be in (0, 1]");
     }
@@ -134,13 +141,32 @@ void validate(const Config& cfg) {
         throw std::runtime_error("img_size * oversample must be a power of two "
                                  "(CPU reference FFT is radix-2)");
     }
-    if (cfg.defocus.size() < 2 || cfg.defocus.size() > 16) {
+    if (!std::isfinite(cfg.theta_deg)) throw std::runtime_error("theta must be finite");
+    if (cfg.defocus.size() < 2 || cfg.defocus.size() > static_cast<std::size_t>(kMaxFrames)) {
         throw std::runtime_error("defocus needs 2..16 frames");
     }
-    if (cfg.star_count < 0) throw std::runtime_error("star_count must be >= 0");
+    for (float d : cfg.defocus) {
+        if (!std::isfinite(d)) throw std::runtime_error("defocus values must be finite");
+    }
+    // FITS 头部卡片是 STAR00..STAR99，超过 100 颗星写不进去。
+    if (cfg.star_count < 0 || cfg.star_count > 100) {
+        throw std::runtime_error("star_count must be in 0..100 (FITS STARnn cards)");
+    }
+    if (!std::isfinite(cfg.flux_min) || !std::isfinite(cfg.flux_max)) {
+        throw std::runtime_error("flux_min/flux_max must be finite");
+    }
+    if (cfg.flux_min < 0.0f) throw std::runtime_error("flux_min must be >= 0");
     if (cfg.flux_min > cfg.flux_max) throw std::runtime_error("flux_min must be <= flux_max");
-    if (cfg.background < 0.0f) throw std::runtime_error("background must be >= 0");
-    if (cfg.read_noise < 0.0f) throw std::runtime_error("read_noise must be >= 0");
+    // poisson_distribution 的均值是 double，但转成 int 计数前要有物理上界。
+    if (cfg.flux_max + cfg.background > 1.0e8f) {
+        throw std::runtime_error("flux_max + background too large for Poisson sampling");
+    }
+    if (!std::isfinite(cfg.background) || cfg.background < 0.0f) {
+        throw std::runtime_error("background must be finite and >= 0");
+    }
+    if (!std::isfinite(cfg.read_noise) || cfg.read_noise < 0.0f) {
+        throw std::runtime_error("read_noise must be finite and >= 0");
+    }
     if (cfg.background_mode != "header" && cfg.background_mode != "median") {
         throw std::runtime_error("background_mode must be 'header' or 'median'");
     }

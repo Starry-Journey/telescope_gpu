@@ -2,6 +2,8 @@
 
 #include <cufft.h>
 
+#include <map>
+
 #include "telescope/cuda_utils.cuh"
 #include "telescope/types.hpp"
 
@@ -62,11 +64,16 @@ private:
                         const float* h_defocus,
                         int n_frames);
 
+    // 返回 batch = n_frames 的 cuFFT plan；首次使用时创建并缓存。
+    // v2.1 修正：原实现固定 batch=max_frames，n_frames<max 时会多算无用的
+    // 帧（读未初始化显存、浪费 FFT 时间）。缓存后每个实际 batch 只建一次。
+    cufftHandle batch_plan(int n_frames);
+
     OpticalParams params_;
     int max_frames_;
 
     cufftHandle plan_single_ = 0;
-    cufftHandle plan_batch_ = 0;
+    std::map<int, cufftHandle> batch_plans_;
 
     // 光瞳采样：mask + 8 项 Zernike 基函数 [kNumZernike][fft_total]。
     DeviceBuffer<unsigned char> d_mask_;
@@ -83,8 +90,9 @@ private:
     DeviceBuffer<float> d_defocus_;
     DeviceBuffer<float> d_sums_;
 
-    DeviceBuffer<float> d_star_x_;
-    DeviceBuffer<float> d_star_y_;
+    // 星点坐标在上传时一次性取整：kernel 里不必对每像素×每星重复 roundf。
+    DeviceBuffer<int> d_star_ix_;
+    DeviceBuffer<int> d_star_iy_;
     DeviceBuffer<float> d_star_flux_;
     int star_count_ = 0;
 };

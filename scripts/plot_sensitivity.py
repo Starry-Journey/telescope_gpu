@@ -72,8 +72,8 @@ draw_box(box2_x, box_y, box_w, box_h,
           "",
           "读取 Z4, Z7, Z8 变化量",
           "",
-          "Zemax Z7 → 代码 Z8",
-          "Zemax Z8 → 代码 Z9"],
+          "Zemax Z7(垂直彗差) → 代码 Z9",
+          "Zemax Z8(水平彗差) → 代码 Z8"],
          '#D5E8D4')  # 浅绿
 
 # 框 3
