@@ -1,0 +1,73 @@
+{
+  "data_dir": "data/ccd_pipeline",
+  "output_dir": "results/ccd_pipeline",
+  "sim": {
+    "width": 512,
+    "height": 512,
+    "n_frames": 20,
+    "n_stars": 20,
+    "seed": 42,
+    "psf_sigma": 1.6,
+    "pixel_scale_arcsec": 1.0,
+    "rotation_deg": 30.0,
+    "crval": [
+      150.0,
+      20.0
+    ],
+    "star_flux_min": 2000.0,
+    "star_flux_max": 20000.0,
+    "target_flux": 1200.0,
+    "target_start": [
+      80.0,
+      90.0
+    ],
+    "target_velocity": [
+      1.6,
+      0.9
+    ],
+    "target_streak": 0.0,
+    "exptime": 10.0,
+    "bias_level": 1000.0,
+    "dark_current": 0.02,
+    "background": 300.0,
+    "read_noise": 5.0,
+    "flat_vignette": 0.22,
+    "gain_variation": 0.02,
+    "saturation": 60000.0,
+    "cosmic_rays": 4,
+    "jitter": 0.6,
+    "distortion_k1": 0.018,
+    "distortion_p1": 0.004,
+    "distortion_p2": -0.003
+  },
+  "preprocess": {
+    "background_box": 64,
+    "background_sigma": 3.0,
+    "denoise_sigma": 0.8,
+    "bad_pixel_sigma": 6.0,
+    "saturation_margin": 0.98
+  },
+  "detect": {
+    "star_threshold_sigma": 5.0,
+    "min_star_area": 3,
+    "max_star_area": 400,
+    "star_centroid_box": 5,
+    "moving_threshold_sigma": 3.0,
+    "moving_min_area": 4,
+    "moving_max_area": 500,
+    "morphology_size": 3,
+    "hough_theta_bins": 180,
+    "hough_rho_bin": 1.0,
+    "hough_threshold": 18,
+    "track_max_step": 5.0,
+    "track_min_length": 5,
+    "track_max_gap": 1,
+    "moving_smooth_sigma": 1.0
+  },
+  "astrometry": {
+    "match_radius_arcsec": 3.0,
+    "distortion_degree": 3,
+    "max_iterations": 5,
+    "min_matches": 6
+  }
+}

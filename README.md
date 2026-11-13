@@ -15,6 +15,42 @@
 >
 > 详细架构、逐模块讲解与面试讲法见 `docs/代码说明.md`。
 
+## 工程化 MVP（L1–L5）
+
+在原有相位差反演之外，仓库增加了可独立构建/测试的工程化层：
+
+| 层 | 目录 | 内容 |
+|---|---|---|
+| L1–L3 | `numerics/` | Eigen LU/QR/SVD、radix-2 FFT、RK4；GTest 10 项、Google Benchmark、ASan、pybind11 |
+| L4 | `pipeline/` | CCD 定标/星点/帧差/Hough/WCS/评估（numpy+scipy+astropy） |
+| L5 | `ml/`、`web/` | PyTorch 可微相位差前向、CNN、传统对比；只读可视化 demo |
+| 部署 | `Dockerfile`、`.github/workflows/ci.yml` | CPU MVP 镜像 + GitHub Actions |
+
+快速验收：
+
+```bash
+# 数值库（Eigen/GTest/Benchmark/pybind11）
+cmake -S numerics -B build-numerics -DCMAKE_BUILD_TYPE=Release
+cmake --build build-numerics -j4
+ctest --test-dir build-numerics --output-on-failure
+
+# CCD 管线
+python3 -m pipeline.run --config configs/pipeline.json --force-sim
+
+# 学习型反演
+python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
+python3 -m ml.compare --samples 4 --starts 16 --max-nfev 100
+
+# 可视化
+python3 web/serve.py --port 8000
+```
+
+文档索引：`docs/tutorials/README.md`；4–6 周路线：`docs/tutorials/00_工程化MVP路线.md`；
+数值库教程：`docs/tutorials/01_C++数值库.md`；可微前向/CNN/对比：`02`–`04`。
+
+> 所有 ML/管线数字都是**仿真**结果，不是 2.5 m 望远镜实测；边界写在每篇 tutorial 末尾。
+
+
 ## 架构
 
 ```
@@ -44,8 +80,35 @@ tests/                 自建轻量测试框架 + CTest
 configs/default.conf   默认参数
 scripts/               可视化与灵敏度矩阵示意图
 baseline/              v1 结果与图片，仅作对照
+pipeline/              CCD 星场/运动目标管线（Python）
+configs/pipeline.json  CCD 管线配置
+numerics/              C++ 数值库（Eigen/GTest/Benchmark/pybind11）
+ml/                    PyTorch 可微前向 + CNN + 传统对比
+web/                   只读可视化 demo
 docs/                  代码说明（本版新增）
 ```
+
+### CCD 星场/运动目标管线（扩展）
+
+`pipeline/` 是独立于相位差反演的 CCD 数据前端，覆盖：
+
+```
+CCD 帧 → 暗场/平场/背景/去噪 → 星点提取/质心 → 帧差/形态学/Hough
+      → WCS/畸变/星表匹配 → 检测率/虚警率/天体测量精度
+```
+
+运行：
+
+```bash
+python3 -m pipeline.run --config configs/pipeline.json --force-sim
+python3 -m unittest discover -s pipeline/tests -v
+```
+
+结果在 `results/ccd_pipeline/`（已被 `.gitignore` 忽略）。默认仿真结果：
+星点完备率 1.000、运动目标检测率 0.85、虚警率 0.000、目标位置 RMSE
+1.09 pixel、天体测量 RMSE 1.39 arcsec。详细模块表、算法和边界见
+`pipeline/README.md`，机理型 Word 教程见 `docs/CCD星场处理管线说明.docx`。
+
 
 构建目标分两层，依赖方向单一（CUDA → CPU）：
 

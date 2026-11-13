@@ -40,3 +40,15 @@ nano.save
 
 # ---- docs figures are part of the deliverable ----
 !docs/figs/*.png
+
+# ---- Python ----
+__pycache__/
+*.pyc
+
+# ---- ML artifacts ----
+ml/runs/
+ml/results/
+*.pt
+!docs/data/*.csv
+!docs/data/
+!docs/data/*.csv

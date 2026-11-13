@@ -10,6 +10,7 @@ set(CMAKE_CUDA_EXTENSIONS OFF)
 
 option(TEL_BUILD_CUDA "Build CUDA targets (forward model, solver, GPU tests)" ON)
 option(TEL_BUILD_TESTS "Build unit tests" ON)
+option(TEL_BUILD_NUMERICS "Build the Eigen/GTest/Benchmark/pybind11 numerical library" OFF)
 
 # RTX 3050 = sm_86。用户显式 -DCMAKE_CUDA_ARCHITECTURES=... 时不再覆盖；
 # 不再把 CMake 自动推断的 52 强行改掉，避免在多卡/新卡机器上编译出
@@ -38,6 +39,13 @@ endif()
 find_library(STDCXXFS_LIBRARY stdc++fs)
 if(STDCXXFS_LIBRARY)
     target_link_libraries(telescope_cpu PUBLIC ${STDCXXFS_LIBRARY})
+endif()
+
+# ------------------------------------------------------------
+# 1b. 数值小库（可选，独立依赖 Eigen/GTest/Benchmark/pybind11）
+# ------------------------------------------------------------
+if(TEL_BUILD_NUMERICS)
+    add_subdirectory(numerics)
 endif()
 
 # ------------------------------------------------------------
@@ -134,6 +142,14 @@ if(TEL_BUILD_TESTS)
     target_link_libraries(telescope_tests PRIVATE telescope_cpu)
     target_include_directories(telescope_tests PRIVATE tests)
     add_test(NAME cpu_unit COMMAND telescope_tests)
+
+    # Python CCD pipeline tests (numpy/scipy/astropy needed at runtime).
+    find_program(PIPELINE_PYTHON_EXECUTABLE NAMES python3 python)
+    if(PIPELINE_PYTHON_EXECUTABLE)
+        add_test(NAME pipeline_python
+            COMMAND ${PIPELINE_PYTHON_EXECUTABLE} -m unittest discover -s pipeline/tests -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    endif()
 
     if(TEL_BUILD_CUDA)
         add_executable(telescope_gpu_tests

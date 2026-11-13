@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCD 星场处理管线 · Demo</title>
+<style>
+  :root { --navy:#1f2a44; --blue:#2e5e8c; --teal:#2a9d8f; --bg:#f4f7fb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+         color:var(--navy); background:var(--bg); }
+  header { background:linear-gradient(135deg,#1f2a44,#2e5e8c); color:#fff;
+           padding:34px 6vw 28px; }
+  header h1 { margin:0 0 8px; font-size:28px; letter-spacing:.5px; }
+  header p { margin:0; opacity:.85; }
+  main { padding:26px 6vw 60px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+          gap:14px; margin:18px 0 26px; }
+  .card { background:#fff; border-radius:12px; padding:18px 18px 14px;
+          box-shadow:0 8px 24px rgba(31,42,68,.08); border-top:3px solid var(--teal); }
+  .card .k { font-size:13px; color:#5f6b7a; }
+  .card .v { font-size:26px; font-weight:700; margin-top:6px; }
+  .figs { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+          gap:18px; }
+  .fig { background:#fff; border-radius:12px; padding:10px;
+         box-shadow:0 8px 24px rgba(31,42,68,.08); }
+  .fig img { width:100%; border-radius:8px; display:block; }
+  .fig .cap { font-size:13px; color:#5f6b7a; padding:8px 6px 2px; }
+  code { background:#eaf2fa; padding:2px 6px; border-radius:5px; }
+  footer { color:#8a94a6; font-size:12px; padding:0 6vw 30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CCD 星场序列处理与运动目标检测</h1>
+  <p>定标 → 星点/质心 → 帧差/形态学/Hough → WCS/畸变 → 检测率/虚警率/误差</p>
+</header>
+<main>
+  <div id="status">正在读取 <code>results/ccd_pipeline/metrics.json</code> …</div>
+  <div class="grid" id="metrics"></div>
+  <div class="figs" id="figs"></div>
+</main>
+<footer>只读 demo · 数据来自仿真，不是 2.5 m 望远镜实测精度 · <code>python3 pipeline.run --force-sim</code></footer>
+<script>
+const fmt = (v, d=3) => (v === undefined || v === null || Number.isNaN(v)) ? "—" : Number(v).toFixed(d);
+fetch("/api/metrics").then(r => r.json()).then(m => {
+  document.getElementById("status").textContent = "metrics.json 已加载";
+  const rows = [
+    ["星点完备率", fmt(m.stars.completeness)],
+    ["目标检测率", fmt(m.target.detection_rate)],
+    ["虚警率", fmt(m.target.false_alarm_rate)],
+    ["目标位置 RMSE", fmt(m.target.position_rmse_pix) + " px"],
+    ["星表残差", fmt(m.astrometry.star_residual_rms_arcsec) + " ″"],
+    ["目标天体测量", fmt(m.astrometry.target_rmse_arcsec) + " ″"],
+  ];
+  document.getElementById("metrics").innerHTML = rows.map(([k,v]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+}).catch(() => {
+  document.getElementById("status").textContent =
+    "还没有结果：先运行 python3 -m pipeline.run --config configs/pipeline.json --force-sim";
+});
+fetch("/api/figures").then(r => r.json()).then(list => {
+  const names = {fig_dataset:"原始/定标帧", fig_stars:"星点提取", fig_moving:"运动目标轨迹",
+                 fig_astrometry:"天体测量残差", fig_metrics:"评估指标", fig_pipeline:"数据流"};
+  document.getElementById("figs").innerHTML = list.map(n =>
+    `<div class="fig"><img src="/figures/${n}" alt="${n}"><div class="cap">${names[n]||n}</div></div>`).join("");
+});
+</script>
+</body>
+</html>

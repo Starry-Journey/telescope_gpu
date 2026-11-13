@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cpu-and-pipeline:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libeigen3-dev libgtest-dev libbenchmark-dev \
+            pybind11-dev python3-numpy python3-scipy python3-astropy python3-matplotlib
+      - name: Configure CPU build
+        run: cmake -S . -B build -DTEL_BUILD_CUDA=OFF -DTEL_BUILD_NUMERICS=OFF
+      - name: Build CPU layer
+        run: cmake --build build -j"$(nproc)"
+      - name: CTest (CPU + Python pipeline)
+        run: ctest --test-dir build --output-on-failure
+
+  numerics:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libeigen3-dev libgtest-dev libbenchmark-dev \
+            pybind11-dev python3-dev python3-numpy
+      - name: Configure numerics
+        run: cmake -S numerics -B build-numerics -DCMAKE_BUILD_TYPE=Release
+      - name: Build numerics
+        run: cmake --build build-numerics -j"$(nproc)"
+      - name: GTest
+        run: ctest --test-dir build-numerics --output-on-failure
+      - name: Smoke-test pybind11 module
+        run: |
+          PYTHONPATH=build-numerics/python python3 - <<'PY'
+          import numpy as np
+          import telescope_numerics_py as tn
+          x = tn.solve_linear(np.eye(3), np.ones(3))
+          assert np.allclose(x, 1.0)
+          print("pybind11 OK", x)
+          PY
+
+
