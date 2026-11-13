@@ -90,27 +90,46 @@ function App() {
     });
   };
 
+  async function postJSON(url, body, timeoutMs = 90000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function doSim() {
     setBusy(true); setErr(""); setInv(null);
     try {
-      const r = await fetch("/api/simulate", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(getParams())});
-      if (!r.ok) throw new Error(await r.text());
-      setSim(await r.json());
-    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+      setSim(await postJSON("/api/simulate", getParams()));
+    } catch(e) {
+      setErr(e.name === "AbortError" ? "仿真超时（后端可能未启动）" : String(e));
+    } finally { setBusy(false); }
   }
 
   async function doInv() {
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/invert", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(getParams())});
-      if (!r.ok) throw new Error(await r.text());
-      const data = await r.json();
+      const data = await postJSON("/api/invert", getParams());
       setInv(data);
       if (data.frames) setSim({...data, shape:data.shape || [5,64,64], coeff:data.truth, defocus:[-2,-1,0,1,2], frame_peak:[]});
-    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+    } catch(e) {
+      setErr(e.name === "AbortError" ? "反演超时：请检查 uvicorn 日志/模型是否加载" : String(e));
+    } finally { setBusy(false); }
   }
 
   function drawChart(d) {
+    const el = document.getElementById("chart");
+    if (!el || typeof Plotly === "undefined") return;
     const x = ["c4","c8","c9"];
     const traces = [
       {type:"bar", name:"truth", x, y:d.truth, marker:{color:"#2e5e8c"}},
@@ -159,6 +178,8 @@ function App() {
         {inv ? <div className="card"><div className="k">最终 cost</div><div className="v">{Number(inv.cost).toExponential(2)}</div></div> : null}
         {inv ? <div className="card"><div className="k">模型</div><div className="v">{inv.model_loaded ? "CNN 已加载" : "零初值"}</div></div> : null}
       </div>
+      <div id="chart"></div>
+      {busy ? <div className="hint">计算中（BOBYQA 通常 &lt; 1 s）...</div> : null}
       {err ? <div className="err">{err}</div> : null}
       <div style={{display:"flex", gap:8, marginTop:12}}>
         <button className="ghost" onClick={doSim} disabled={busy}>重新生成</button>

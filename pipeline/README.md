@@ -62,6 +62,17 @@ cd telescope_gpu
 python3 -m pipeline.run --config configs/pipeline.json --force-sim
 ```
 
+### 真实感 CCD 仿真
+
+默认 `simulate.py` 用高斯 PSF 保证指标可复现。要接近 phosim 的视觉效果（Moffat seeing、衍射星芒、饱和/ blooming、宇宙线轨迹、热像素、背景梯度、平场灰尘）：
+
+```bash
+python3 -m pipeline.realistic --out data/realistic --frames 5 --stars 40
+```
+
+输出 `raw/`、`calib/`、`catalog.csv`、`truth.csv`、`preview.png`；说明见
+`docs/tutorials/10_CCD图像真实感.md`。它不是 phosim 的完整光学模型，但比高斯 PSF 更接近真实 CCD。
+
 输出在 `results/ccd_pipeline/`：
 
 ```

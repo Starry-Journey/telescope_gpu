@@ -13,6 +13,7 @@
 | 07 | [脚本 → 教程索引](07_脚本索引.md) | 全部脚本 | 每个脚本对应哪篇教程 |
 | 08 | [CNN 初值 + BOBYQA](08_CNN初值BOBYQA.md) | `ml/two_stage.py` | 34 vs 1823 次评估的 two-stage 证明 |
 | 09 | [FastAPI + React 小程序](09_FastAPI_React科学计算小程序.md) | `web/` | 仿真/反演 UI、API、部署 |
+| 10 | [CCD 图像真实感](10_CCD图像真实感.md) | `pipeline/realistic.py` | Moffat/星芒/饱和/宇宙线/平场，向 phosim 靠拢 |
 
 ## 其它文档
 
