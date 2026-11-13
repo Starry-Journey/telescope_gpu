@@ -1,0 +1,9 @@
+build/
+build-*/
+data/
+results/
+ml/runs/
+ml/results/
+__pycache__/
+*.pyc
+.git/

@@ -1,5 +1,8 @@
 # telescope_gpu
 
+[![ci](https://github.com/Starry-Journey/telescope_gpu/actions/workflows/ci.yml/badge.svg?branch=engineering-mvp)](https://github.com/Starry-Journey/telescope_gpu/actions/workflows/ci.yml)
+
+
 大口径望远镜重力变形的**相位差法波前反演**仿真平台（v2.1）。
 
 正向生成离焦星点图像 → 用相位差法反演出 Zernike 系数 → 与真值比对，
@@ -13,7 +16,45 @@
 > （波前 RMS 与系数 RMS 相差 √3，不能直接混比）。
 > 这是**已知真值的仿真数据**，不是实测精度。
 >
-> 详细架构、逐模块讲解与面试讲法见 `docs/代码说明.md`。
+> 详细架构、逐模块讲解与设计复盘见 `docs/代码说明.md`。
+
+## 工程化 MVP（L1–L5）
+
+在原有相位差反演之外，仓库增加了可独立构建/测试的工程化层：
+
+| 层 | 目录 | 内容 |
+|---|---|---|
+| L1–L3 | `numerics/` | Eigen LU/QR/SVD、radix-2 FFT、RK4；GTest 10 项、Google Benchmark、ASan、pybind11 |
+| L4 | `pipeline/` | CCD 定标/星点/帧差/Hough/WCS/评估（numpy+scipy+astropy） |
+| L5 | `ml/`、`web/` | PyTorch 可微相位差前向、CNN、传统对比；只读可视化 demo |
+| 部署 | `Dockerfile`、`.github/workflows/ci.yml` | CPU MVP 镜像 + GitHub Actions |
+
+快速验收：
+
+```bash
+# 数值库（Eigen/GTest/Benchmark/pybind11）
+cmake -S numerics -B build-numerics -DCMAKE_BUILD_TYPE=Release
+cmake --build build-numerics -j4
+ctest --test-dir build-numerics --output-on-failure
+
+# CCD 管线
+python3 -m pipeline.run --config configs/pipeline.json --force-sim
+
+# 学习型反演
+python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
+python3 -m ml.compare --samples 4 --starts 16 --max-nfev 100
+
+# 可视化
+python3 web/serve.py --port 8000
+```
+
+文档索引：`docs/tutorials/README.md`；4–6 周路线：`docs/tutorials/00_工程化MVP路线.md`；
+数值库教程：`docs/tutorials/01_C++数值库.md`；可微前向/CNN/对比：`02`–`04`。
+
+> 所有 ML/管线数字都是**仿真**结果，不是 2.5 m 望远镜实测；边界写在每篇 tutorial 末尾。
+> **two-stage 实测**：3 个独立仿真样本上，CNN 初值 + BOBYQA 平均 **34 次**正向评估，40 个随机起点 + BOBYQA 平均 **1823 次**，精度相同；详见 `docs/tutorials/08_CNN初值BOBYQA.md`。
+
+
 
 ## 架构
 
@@ -44,8 +85,35 @@ tests/                 自建轻量测试框架 + CTest
 configs/default.conf   默认参数
 scripts/               可视化与灵敏度矩阵示意图
 baseline/              v1 结果与图片，仅作对照
+pipeline/              CCD 星场/运动目标管线（Python）
+configs/pipeline.json  CCD 管线配置
+numerics/              C++ 数值库（Eigen/GTest/Benchmark/pybind11）
+ml/                    PyTorch 可微前向 + CNN + 传统对比
+web/                   只读可视化 demo
 docs/                  代码说明（本版新增）
 ```
+
+### CCD 星场/运动目标管线（扩展）
+
+`pipeline/` 是独立于相位差反演的 CCD 数据前端，覆盖：
+
+```
+CCD 帧 → 暗场/平场/背景/去噪 → 星点提取/质心 → 帧差/形态学/Hough
+      → WCS/畸变/星表匹配 → 检测率/虚警率/天体测量精度
+```
+
+运行：
+
+```bash
+python3 -m pipeline.run --config configs/pipeline.json --force-sim
+python3 -m unittest discover -s pipeline/tests -v
+```
+
+结果在 `results/ccd_pipeline/`（已被 `.gitignore` 忽略）。默认仿真结果：
+星点完备率 1.000、运动目标检测率 0.85、虚警率 0.000、目标位置 RMSE
+1.09 pixel、天体测量 RMSE 1.39 arcsec。详细模块表、算法和边界见
+`pipeline/README.md`，机理型 Word 教程见 `docs/CCD星场处理管线说明.docx`。
+
 
 构建目标分两层，依赖方向单一（CUDA → CPU）：
 
@@ -192,5 +260,13 @@ final cost = 5.3124e-03 (cost(true) = 5.3125e-03)
 ## 文档
 
 - `docs/代码说明.md`：架构、模块职责、逐函数讲解、数据流、代码审查记录、
-  性能分析、面试讲法与追问。
+  性能分析与设计复盘。
 - `README.md`：构建/运行/边界。
+- `docs/工程化技术说明_代码对齐版.docx`：总览（软件设计、科学原理、模块/函数、测试、CI、与主报告对齐）。
+- `docs/数值库技术说明.docx`：`numerics/`（Eigen/GTest/Benchmark/pybind11）。
+- `docs/CCD星场处理管线说明.docx`：`pipeline/`（定标/星点/帧差/Hough/WCS/评估）。
+- `docs/学习型反演技术说明.docx`：`ml/`（可微前向/CNN/two-stage）。
+- `docs/Web小程序技术说明.docx`：`web/`（FastAPI/React/Plotly/故障排查）。
+- `docs/技术报告_代码对齐版_v2.docx`：主技术报告 + 附录D 工程化扩展与代码对齐。
+- `docs/模块化文档索引.md`：模块文档/命令/口径索引。
+- `docs/tutorials/`：逐模块教程与复现命令。
