@@ -138,6 +138,7 @@ def invert(req: SimRequest):
         "nfev": int(nfev),
         "cost": float(cost),
         "model_loaded": loaded is not None,
+        "shape": list(stack.shape),
         "frames": [_png_data_url(stack[i]) for i in range(stack.shape[0])],
     })
 

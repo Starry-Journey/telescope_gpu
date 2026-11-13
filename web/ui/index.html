@@ -106,7 +106,7 @@ function App() {
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
       setInv(data);
-      if (data.frames) setSim({...data, coeff:data.truth, defocus:[-2,-1,0,1,2], frame_peak:[]});
+      if (data.frames) setSim({...data, shape:data.shape || [5,64,64], coeff:data.truth, defocus:[-2,-1,0,1,2], frame_peak:[]});
     } catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
