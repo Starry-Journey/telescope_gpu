@@ -1,7 +1,8 @@
 import json
+import os
 import urllib.request
 
-BASE = "http://127.0.0.1:8770"
+BASE = os.environ.get("MINIAPP_URL", "http://127.0.0.1:8000")
 
 
 def post(path, obj):
