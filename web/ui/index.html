@@ -28,6 +28,8 @@
   .frames figure{margin:0;background:#0b1020;border-radius:8px;overflow:hidden}
   .frames img{width:100%;display:block}
   .frames figcaption{font-size:11px;color:#c9d6e3;text-align:center;padding:4px 0;background:#111a2e}
+  .ccd img{width:100%;border-radius:10px;display:block;margin-top:12px}
+  .ccd .cap{font-size:12px;color:#5f6b7a;margin-top:6px}
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
   .card{background:#f4f7fb;border-radius:9px;padding:10px 12px}
   .card .k{font-size:12px;color:#5f6b7a}.card .v{font-size:18px;font-weight:700;margin-top:4px}
@@ -55,6 +57,7 @@
     <input id="noise" type="range" min="0" max="0.05" step="0.001" defaultValue="0.01">
     <button class="primary" id="simBtn">生成 5 帧离焦 PSF</button>
     <button class="secondary" id="invBtn">反演（CNN 初值 + BOBYQA）</button>
+    <button class="ghost" id="ccdBtn">生成真实感 CCD 星场</button>
     <p class="hint" style="margin-top:14px">
       <span class="tag">物理</span>圆孔 + Z4/Z8/Z9 + 5 帧 defocus = [-2,-1,0,1,2] waves。
       <br><span class="tag">数值</span>64×64、2× 过采样、2×2 binning、每帧归一化。
@@ -72,6 +75,7 @@ const {useState, useEffect} = React;
 function App() {
   const [sim, setSim] = useState(null);
   const [inv, setInv] = useState(null);
+  const [ccd, setCcd] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -127,6 +131,16 @@ function App() {
     } finally { setBusy(false); }
   }
 
+  async function doCcd() {
+    setBusy(true); setErr("");
+    try {
+      const data = await postJSON("/api/ccd", {stars: 40, seed: Math.floor(Math.random() * 10000)}, 120000);
+      setCcd(data);
+    } catch(e) {
+      setErr(e.name === "AbortError" ? "CCD 仿真超时" : String(e));
+    } finally { setBusy(false); }
+  }
+
   function drawChart(d) {
     const el = document.getElementById("chart");
     if (!el || typeof Plotly === "undefined") return;
@@ -152,8 +166,10 @@ function App() {
     doSim();
     const sb = document.getElementById("simBtn");
     const ib = document.getElementById("invBtn");
+    const cb = document.getElementById("ccdBtn");
     if (sb) sb.onclick = doSim;
     if (ib) ib.onclick = doInv;
+    if (cb) cb.onclick = doCcd;
   }, []);
 
   useEffect(() => {
@@ -179,7 +195,8 @@ function App() {
         {inv ? <div className="card"><div className="k">模型</div><div className="v">{inv.model_loaded ? "CNN 已加载" : "零初值"}</div></div> : null}
       </div>
       <div id="chart"></div>
-      {busy ? <div className="hint">计算中（BOBYQA 通常 &lt; 1 s）...</div> : null}
+      {ccd ? <div className="ccd"><img src={ccd.image} alt="realistic CCD"/><div className="cap">真实感 CCD 星场：Moffat + 星芒 + 饱和/blooming + 宇宙线/热像素（{ccd.stars} 颗星）</div></div> : null}
+      {busy ? <div className="hint">计算中（BOBYQA 通常 &lt; 1 s；CCD 仿真约 1–3 s）...</div> : null}
       {err ? <div className="err">{err}</div> : null}
       <div style={{display:"flex", gap:8, marginTop:12}}>
         <button className="ghost" onClick={doSim} disabled={busy}>重新生成</button>

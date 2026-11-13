@@ -18,6 +18,7 @@
 1. **生成**：`POST /api/simulate` → 用 `ml/phase_torch.py` 的可微前向生成 5 帧 PSF，返回 PNG data URL；
 2. **反演**：`POST /api/invert` → 生成带噪 PSF，CNN 预测初值，NLopt BOBYQA 精修，返回
    `truth / cnn / refined / nfev / cost`。
+3. **真实感 CCD**：`POST /api/ccd` → 320×320 的 Moffat/星芒/饱和/宇宙线星场，用于看 phosim 风格图像。
 
 ## 2. 后端设计
 
@@ -81,6 +82,7 @@ POST /api/invert   -> truth [0.6,-0.2,0.1]
                       CNN  [0.589,-0.195,0.105]
                       BOBYQA [0.596,-0.221,0.110]
                       nfev 30, cost 1.2e-7
+POST /api/ccd      -> 320×320, 40 stars, PNG ~0.7 MB
 GET  / -> 200
 ```
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -32,6 +33,7 @@ import matplotlib.pyplot as plt
 from ml.phase_torch import ForwardConfig, forward_stack
 from ml.traditional import forward_stack_numpy
 from ml.two_stage import bobyqa
+from pipeline.realistic import RealisticConfig, preview_frame, simulate_realistic
 
 ROOT = Path(__file__).resolve().parents[2]
 UI = Path(__file__).resolve().parents[1] / "ui"
@@ -66,6 +68,31 @@ class SimRequest(BaseModel):
     c8: float = -0.2
     c9: float = 0.1
     noise: float = 0.01
+
+
+class CcdRequest(BaseModel):
+    stars: int = 40
+    seed: int = 7
+
+
+@app.post("/api/ccd")
+def ccd(req: CcdRequest):
+    """Generate one phosim-like CCD frame (Moffat + spikes + saturation + CRs)."""
+    stars = max(10, min(int(req.stars), 100))
+    with tempfile.TemporaryDirectory() as td:
+        cfg = RealisticConfig(width=320, height=320, n_frames=1, n_stars=stars,
+                              seed=int(req.seed))
+        simulate_realistic(td, cfg)
+        png = Path(td) / "preview.png"
+        preview_frame(str(Path(td) / "raw" / "frame_000.fits"), str(png))
+        data = base64.b64encode(png.read_bytes()).decode()
+    return JSONResponse({
+        "image": "data:image/png;base64," + data,
+        "stars": stars,
+        "shape": [320, 320],
+        "psf": "moffat",
+        "note": "教学真实感模型，不是 phosim 完整光路",
+    })
 
 
 def _png_data_url(frame: np.ndarray) -> str:

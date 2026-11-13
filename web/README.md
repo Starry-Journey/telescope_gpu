@@ -27,6 +27,7 @@ python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
 | `GET /api/health` | 服务/模型状态 |
 | `POST /api/simulate` | `{c4,c8,c9,noise}` → 5 帧 PNG data URL |
 | `POST /api/invert` | `{c4,c8,c9,noise}` → truth/CNN/BOBYQA/nfev/cost |
+| `POST /api/ccd` | `{stars,seed}` → 320×320 真实感 CCD 星场 PNG（Moffat/星芒/饱和/宇宙线） |
 | `GET /api/metrics` | CCD 管线 `metrics.json` |
 | `GET /api/figures` | 结果图列表 |
 | `GET /` | React 单页 |
