@@ -10,7 +10,6 @@
 | 03 | [CNN 训练](03_CNN训练.md) | `ml/dataset.py`、`model.py`、`train_cnn.py` | 数据生成、归一化、CNN、训练曲线 |
 | 04 | [传统对比](04_传统对比.md) | `ml/compare.py` | 多起点最小二乘、精度/速度/鲁棒性、two-stage |
 | 05 | [工程化与部署](05_工程化与部署.md) | CMake、Docker、CI、web | L1–L5 落地、验收命令、坑 |
-| 06 | [学习与实习叙事](06_学习与实习叙事.md) | 全部 | 四周学习表、3 分钟讲法、三层追问 |
 | 07 | [脚本 → 教程索引](07_脚本索引.md) | 全部脚本 | 每个脚本对应哪篇教程 |
 | 08 | [CNN 初值 + BOBYQA](08_CNN初值BOBYQA.md) | `ml/two_stage.py` | 34 vs 1823 次评估的 two-stage 证明 |
 | 09 | [FastAPI + React 小程序](09_FastAPI_React科学计算小程序.md) | `web/` | 仿真/反演 UI、API、部署 |
