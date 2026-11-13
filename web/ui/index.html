@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCD 科学计算小程序 · 仿真与反演</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  :root{--navy:#1f2a44;--blue:#2e5e8c;--teal:#2a9d8f;--orange:#c05a3f;--bg:#f4f7fb;--line:#dbe3ee}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--navy);font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  header{background:linear-gradient(135deg,#1f2a44,#2e5e8c);color:#fff;padding:30px 6vw 24px}
+  header h1{margin:0 0 6px;font-size:26px}
+  header p{margin:0;opacity:.85;font-size:14px}
+  main{padding:24px 6vw 60px;display:grid;grid-template-columns:340px 1fr;gap:22px}
+  @media(max-width:980px){main{grid-template-columns:1fr}}
+  .panel{background:#fff;border-radius:14px;padding:20px;box-shadow:0 10px 28px rgba(31,42,68,.08)}
+  .panel h2{font-size:16px;margin:0 0 14px;color:var(--blue)}
+  .row{display:flex;justify-content:space-between;font-size:13px;margin:12px 0 4px;color:#5f6b7a}
+  input[type=range]{width:100%;accent-color:var(--teal)}
+  button{width:100%;border:0;border-radius:9px;padding:11px 14px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;margin-top:12px}
+  .primary{background:var(--teal)} .secondary{background:var(--blue)} .ghost{background:#eaf2fa;color:var(--blue)}
+  button:disabled{opacity:.55;cursor:wait}
+  .frames{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}
+  .frames figure{margin:0;background:#0b1020;border-radius:8px;overflow:hidden}
+  .frames img{width:100%;display:block}
+  .frames figcaption{font-size:11px;color:#c9d6e3;text-align:center;padding:4px 0;background:#111a2e}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+  .card{background:#f4f7fb;border-radius:9px;padding:10px 12px}
+  .card .k{font-size:12px;color:#5f6b7a}.card .v{font-size:18px;font-weight:700;margin-top:4px}
+  #chart{width:100%;height:270px}
+  .hint{font-size:12px;color:#8a94a6;line-height:1.6}
+  .tag{display:inline-block;font-size:11px;background:#e8f5f1;color:#1d7a70;padding:2px 7px;border-radius:20px;margin-right:6px}
+  .err{background:#fbe9e3;color:#8b2e2e;border-radius:8px;padding:10px;font-size:13px;margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <h1>CCD 科学计算小程序</h1>
+  <p>相位差 PSF 仿真生成 · CNN 初值 + BOBYQA 反演 · React + FastAPI + Plotly</p>
+</header>
+<main>
+  <section class="panel">
+    <h2>① 参数 / 生成</h2>
+    <div class="row"><span>Z4 离焦 c4</span><b id="c4v"></b></div>
+    <input id="c4" type="range" min="-1.5" max="1.5" step="0.01" defaultValue="0.6">
+    <div class="row"><span>Z8 彗差 x c8</span><b id="c8v"></b></div>
+    <input id="c8" type="range" min="-0.5" max="0.5" step="0.01" defaultValue="-0.2">
+    <div class="row"><span>Z9 彗差 y c9</span><b id="c9v"></b></div>
+    <input id="c9" type="range" min="-0.5" max="0.5" step="0.01" defaultValue="0.1">
+    <div class="row"><span>噪声（峰值比例）</span><b id="nv"></b></div>
+    <input id="noise" type="range" min="0" max="0.05" step="0.001" defaultValue="0.01">
+    <button class="primary" id="simBtn">生成 5 帧离焦 PSF</button>
+    <button class="secondary" id="invBtn">反演（CNN 初值 + BOBYQA）</button>
+    <p class="hint" style="margin-top:14px">
+      <span class="tag">物理</span>圆孔 + Z4/Z8/Z9 + 5 帧 defocus = [-2,-1,0,1,2] waves。
+      <br><span class="tag">数值</span>64×64、2× 过采样、2×2 binning、每帧归一化。
+      <br><span class="tag">边界</span>这是仿真教学模型，不是 2.5 m 望远镜实测。
+    </p>
+  </section>
+  <section class="panel">
+    <h2>② 仿真结果 / 反演结果</h2>
+    <div id="root"></div>
+  </section>
+</main>
+<script type="text/babel">
+const {useState, useEffect} = React;
+
+function App() {
+  const [sim, setSim] = useState(null);
+  const [inv, setInv] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const getParams = () => ({
+    c4: parseFloat(document.getElementById("c4").value),
+    c8: parseFloat(document.getElementById("c8").value),
+    c9: parseFloat(document.getElementById("c9").value),
+    noise: parseFloat(document.getElementById("noise").value),
+  });
+
+  const refreshLabels = () => {
+    ["c4","c8","c9","noise"].forEach(id => {
+      const el = document.getElementById(id);
+      const out = document.getElementById(id + "v");
+      if (el && out) out.textContent = Number(el.value).toFixed(3);
+    });
+  };
+
+  async function doSim() {
+    setBusy(true); setErr(""); setInv(null);
+    try {
+      const r = await fetch("/api/simulate", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(getParams())});
+      if (!r.ok) throw new Error(await r.text());
+      setSim(await r.json());
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function doInv() {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/invert", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(getParams())});
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      setInv(data);
+      if (data.frames) setSim({...data, coeff:data.truth, defocus:[-2,-1,0,1,2], frame_peak:[]});
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  function drawChart(d) {
+    const x = ["c4","c8","c9"];
+    const traces = [
+      {type:"bar", name:"truth", x, y:d.truth, marker:{color:"#2e5e8c"}},
+      {type:"bar", name:"CNN init", x, y:d.cnn || d.init, marker:{color:"#2a9d8f"}},
+      {type:"bar", name:"BOBYQA", x, y:d.refined, marker:{color:"#c05a3f"}},
+    ];
+    Plotly.react("chart", traces, {
+      barmode:"group", margin:{l:40,r:10,t:30,b:30},
+      yaxis:{title:"waves"}, legend:{orientation:"h"},
+      paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
+    }, {displayModeBar:false});
+  }
+
+  useEffect(() => {
+    refreshLabels();
+    ["c4","c8","c9","noise"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", refreshLabels);
+    });
+    doSim();
+    const sb = document.getElementById("simBtn");
+    const ib = document.getElementById("invBtn");
+    if (sb) sb.onclick = doSim;
+    if (ib) ib.onclick = doInv;
+  }, []);
+
+  useEffect(() => {
+    if (inv) drawChart(inv);
+  }, [inv]);
+
+  const frames = sim ? sim.frames : [];
+  const defocus = sim ? sim.defocus : [];
+  const params = getParams();
+
+  return (
+    <>
+      <div className="frames">
+        {frames.map((src,i) => (
+          <figure key={i}><img src={src} alt={"frame "+i}/><figcaption>d={defocus[i]} λ</figcaption></figure>
+        ))}
+      </div>
+      <div className="cards">
+        {sim ? <div className="card"><div className="k">帧数 / 尺寸</div><div className="v">{sim.shape[0]} / {sim.shape[1]}²</div></div> : null}
+        {sim ? <div className="card"><div className="k">噪声</div><div className="v">{params.noise.toFixed(3)}</div></div> : null}
+        {inv ? <div className="card"><div className="k">BOBYQA 评估</div><div className="v">{inv.nfev}</div></div> : null}
+        {inv ? <div className="card"><div className="k">最终 cost</div><div className="v">{Number(inv.cost).toExponential(2)}</div></div> : null}
+        {inv ? <div className="card"><div className="k">模型</div><div className="v">{inv.model_loaded ? "CNN 已加载" : "零初值"}</div></div> : null}
+      </div>
+      {err ? <div className="err">{err}</div> : null}
+      <div style={{display:"flex", gap:8, marginTop:12}}>
+        <button className="ghost" onClick={doSim} disabled={busy}>重新生成</button>
+        <button className="secondary" onClick={doInv} disabled={busy}>反演当前帧</button>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

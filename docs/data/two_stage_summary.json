@@ -1,0 +1,12 @@
+{
+  "CNN+BOBYQA": {
+    "mean_nfev": 34.0,
+    "mean_time_s": 0.22574098904927573,
+    "mean_wf_rms": 0.009548626312887812
+  },
+  "40 random+BOBYQA": {
+    "mean_nfev": 1823.0,
+    "mean_time_s": 13.326914151509603,
+    "mean_wf_rms": 0.009550015235808876
+  }
+}

@@ -1,5 +1,8 @@
 # telescope_gpu
 
+[![ci](https://github.com/Starry-Journey/telescope_gpu/actions/workflows/ci.yml/badge.svg?branch=engineering-mvp)](https://github.com/Starry-Journey/telescope_gpu/actions/workflows/ci.yml)
+
+
 大口径望远镜重力变形的**相位差法波前反演**仿真平台（v2.1）。
 
 正向生成离焦星点图像 → 用相位差法反演出 Zernike 系数 → 与真值比对，
@@ -49,6 +52,8 @@ python3 web/serve.py --port 8000
 数值库教程：`docs/tutorials/01_C++数值库.md`；可微前向/CNN/对比：`02`–`04`。
 
 > 所有 ML/管线数字都是**仿真**结果，不是 2.5 m 望远镜实测；边界写在每篇 tutorial 末尾。
+> **two-stage 实测**：3 个独立仿真样本上，CNN 初值 + BOBYQA 平均 **34 次**正向评估，40 个随机起点 + BOBYQA 平均 **1823 次**，精度相同；详见 `docs/tutorials/08_CNN初值BOBYQA.md`。
+
 
 
 ## 架构
