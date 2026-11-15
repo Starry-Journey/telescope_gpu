@@ -4,6 +4,7 @@
 
 1. **CCD/PSF 仿真生成**：滑杆调 `c4/c8/c9/noise`，后端用 PyTorch 可微前向生成 5 帧离焦 PSF；
 2. **反演**：CNN 给初值 + NLopt BOBYQA 精修，前端用 Plotly 对比 truth / CNN / refined，并显示评估次数与 cost。
+3. **框架控制**：`/api/framework/*` 提供 3×5 灵敏度矩阵 + 最小范数控制；前端下方“③ 框架”区域可调目标/λ 并看 S 热力图、控制量柱状图和零空间提示。
 
 ## 启动
 
@@ -28,6 +29,9 @@ python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
 | `POST /api/simulate` | `{c4,c8,c9,noise}` → 5 帧 PNG data URL |
 | `POST /api/invert` | `{c4,c8,c9,noise}` → truth/CNN/BOBYQA/nfev/cost |
 | `POST /api/ccd` | `{stars,seed}` → 320×320 真实感 CCD 星场 PNG（Moffat/星芒/饱和/宇宙线） |
+| `GET /api/framework` | 参数/控制元数据 + 默认目标 |
+| `POST /api/framework/sensitivity` | `{step}` → 3×5 S、rank/condition/nullspace |
+| `POST /api/framework/control` | `{target,lam,use_bounds}` → 最小范数 u/残差 |
 | `GET /api/metrics` | CCD 管线 `metrics.json` |
 | `GET /api/figures` | 结果图列表 |
 | `GET /` | React 单页 |

@@ -83,6 +83,9 @@ POST /api/invert   -> truth [0.6,-0.2,0.1]
                       BOBYQA [0.596,-0.221,0.110]
                       nfev 30, cost 1.2e-7
 POST /api/ccd      -> 320×320, 40 stars, PNG ~0.7 MB
+GET  /api/framework -> 3x5 metadata/default target
+POST /api/framework/sensitivity -> S rank=3 cond=1.0897 nullspace=2
+POST /api/framework/control     -> u/residual/cost
 GET  / -> 200
 ```
 

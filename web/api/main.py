@@ -8,6 +8,9 @@ Endpoints
 GET  /api/health
 POST /api/simulate   {c4,c8,c9,noise} -> 5 PSF frames as PNG data URLs
 POST /api/invert     {c4,c8,c9,noise} -> truth / CNN init / BOBYQA refined
+GET  /api/framework  -> parameter/control metadata + default target
+POST /api/framework/sensitivity -> 3x5 S, rank/condition/nullspace
+POST /api/framework/control     -> minimum-norm control u + residual
 GET  /api/metrics    -> pipeline metrics (if available)
 GET  /api/figures    -> list of pipeline figures
 """
@@ -34,6 +37,7 @@ from ml.phase_torch import ForwardConfig, forward_stack
 from ml.traditional import forward_stack_numpy
 from ml.two_stage import bobyqa
 from pipeline.realistic import RealisticConfig, preview_frame, simulate_realistic
+from web import framework_service as fw
 
 ROOT = Path(__file__).resolve().parents[2]
 UI = Path(__file__).resolve().parents[1] / "ui"
@@ -73,6 +77,41 @@ class SimRequest(BaseModel):
 class CcdRequest(BaseModel):
     stars: int = 40
     seed: int = 7
+
+
+class FrameworkSensitivityRequest(BaseModel):
+    step: float = 1e-3
+
+
+class FrameworkControlRequest(BaseModel):
+    target: List[float]
+    lam: float = 1e-8
+    use_bounds: bool = True
+    lower: Optional[List[float]] = None
+    upper: Optional[List[float]] = None
+
+
+@app.get("/api/framework")
+def framework_meta():
+    """Metadata for the sensitivity/control panel."""
+    return JSONResponse(fw.metadata())
+
+
+@app.post("/api/framework/sensitivity")
+def framework_sensitivity(req: FrameworkSensitivityRequest):
+    try:
+        return JSONResponse(fw.sensitivity(float(req.step)))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/framework/control")
+def framework_control(req: FrameworkControlRequest):
+    try:
+        return JSONResponse(fw.control(req.target, float(req.lam),
+                                       bool(req.use_bounds), req.lower, req.upper))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/ccd")

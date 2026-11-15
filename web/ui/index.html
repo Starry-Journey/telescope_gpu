@@ -37,6 +37,17 @@
   .hint{font-size:12px;color:#8a94a6;line-height:1.6}
   .tag{display:inline-block;font-size:11px;background:#e8f5f1;color:#1d7a70;padding:2px 7px;border-radius:20px;margin-right:6px}
   .err{background:#fbe9e3;color:#8b2e2e;border-radius:8px;padding:10px;font-size:13px;margin-top:10px}
+  .fw-section{padding:0 6vw 60px}
+  .fw-grid{display:grid;grid-template-columns:320px 1fr;gap:18px}
+  @media(max-width:980px){.fw-grid{grid-template-columns:1fr}}
+  .numgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .numgrid label{font-size:12px;color:#5f6b7a;display:block}
+  .numgrid input{width:100%;border:1px solid var(--line);border-radius:7px;padding:7px;font-size:13px;margin-top:3px}
+  .fw-chart{width:100%;height:300px}
+  .fw-note{font-size:12px;color:#8a94a6;line-height:1.6;margin-top:8px}
+  .fw-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+  .fw-table th,.fw-table td{border-bottom:1px solid var(--line);padding:5px 4px;text-align:right}
+  .fw-table th:first-child,.fw-table td:first-child{text-align:left}
 </style>
 </head>
 <body>
@@ -69,6 +80,16 @@
     <div id="root"></div>
   </section>
 </main>
+<section class="fw-section">
+  <div class="panel">
+    <h2>③ 框架：自定义参数灵敏度 + 控制量</h2>
+    <p class="hint" style="margin:0 0 14px">
+      <span class="tag">数据链</span>参数空间 → 3×5 灵敏度矩阵 → 加权最小二乘控制。
+      <span class="tag">注意</span>3×5 秩 3、零空间 2 维：目标可复现，控制量不唯一。
+    </p>
+    <div id="framework-root"></div>
+  </div>
+</section>
 <script type="text/babel">
 const {useState, useEffect} = React;
 
@@ -206,7 +227,137 @@ function App() {
   );
 }
 
+function FrameworkApp() {
+  const [meta, setMeta] = useState(null);
+  const [target, setTarget] = useState([0, 0, 0]);
+  const [step, setStep] = useState(0.001);
+  const [lam, setLam] = useState(1e-8);
+  const [S, setS] = useState(null);
+  const [ctrl, setCtrl] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function fwPost(path, body) {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json();
+  }
+
+  function drawS(d) {
+    const el = document.getElementById("fwSChart");
+    if (!el || typeof Plotly === "undefined") return;
+    const text = d.values.map(row => row.map(v => Number(v).toFixed(2)));
+    Plotly.react("fwSChart", [{
+      z:d.values, x:d.control_names, y:d.target_names, type:"heatmap",
+      colorscale:"RdBu", zmid:0, text, texttemplate:"%{text}",
+      colorbar:{title:"dz/du", thickness:12},
+    }], {
+      margin:{l:42,r:10,t:24,b:38}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)", title:{text:`S ${d.values.length}×${d.values[0].length}  rank=${d.rank}  nullspace=${d.nullspace}`,font:{size:12}},
+    }, {displayModeBar:false});
+  }
+
+  function drawC(d) {
+    const el = document.getElementById("fwCtrlChart");
+    if (!el || typeof Plotly === "undefined") return;
+    const names = meta ? meta.control_names : ["uz","ux","uy","ua","ub"];
+    Plotly.react("fwCtrlChart", [{
+      type:"bar", x:names, y:d.u, marker:{color:"#2a9d8f"},
+      name:"u (min-norm)", text:d.u.map(v => Number(v).toFixed(3)), textposition:"outside",
+    }], {
+      margin:{l:42,r:10,t:24,b:38}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"control (mm / mrad)"},
+      title:{text:`control  rank=${d.rank}  cond=${Number(d.condition).toFixed(3)}`,font:{size:12}},
+    }, {displayModeBar:false});
+  }
+
+  async function loadAll() {
+    setBusy(true); setErr("");
+    try {
+      const m = await (await fetch("/api/framework")).json();
+      setMeta(m); setTarget(m.target);
+      const [s, c] = await Promise.all([
+        fwPost("/api/framework/sensitivity", {step:0.001}),
+        fwPost("/api/framework/control", {target:m.target, lam:1e-8, use_bounds:true}),
+      ]);
+      setS(s); setCtrl(c);
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function buildS() {
+    setBusy(true); setErr("");
+    try { setS(await fwPost("/api/framework/sensitivity", {step:Number(step)})); }
+    catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function solveC() {
+    setBusy(true); setErr("");
+    try { setCtrl(await fwPost("/api/framework/control", {target:target.map(Number), lam:Number(lam), use_bounds:true})); }
+    catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { if (S) drawS(S); }, [S]);
+  useEffect(() => { if (ctrl) drawC(ctrl); }, [ctrl]);
+
+  const setT = (i, v) => {
+    const next = target.slice(); next[i] = Number(v); setTarget(next);
+  };
+  const maxRes = ctrl ? Math.max(...ctrl.residual.map(v => Math.abs(v))) : null;
+
+  return (
+    <div className="fw-grid">
+      <div>
+        <div className="numgrid">
+          {(meta ? meta.target_names : ["Z4","Z8","Z9"]).map((n,i) => (
+            <label key={n}>{n} target
+              <input type="number" step="0.01" value={target[i]}
+                     onChange={e => setT(i, e.target.value)} />
+            </label>
+          ))}
+        </div>
+        <div className="row"><span>差分步长 δ</span><b>{Number(step).toExponential(1)}</b></div>
+        <input type="range" min="0.0001" max="0.01" step="0.0001" value={step}
+               onChange={e => setStep(e.target.value)} />
+        <div className="row"><span>Tikhonov λ</span><b>{Number(lam).toExponential(1)}</b></div>
+        <input type="range" min="0" max="0.01" step="0.0001" value={lam}
+               onChange={e => setLam(e.target.value)} />
+        <button className="primary" onClick={buildS} disabled={busy}>重算灵敏度矩阵 S</button>
+        <button className="secondary" onClick={solveC} disabled={busy}>求解控制量 u</button>
+        <p className="fw-note">
+          目标 z=[Z4,Z8,Z9]；控制 u=[uz,ux,uy,uα,uβ]。3×5 秩 3，零空间 2 维：
+          目标可复现，但 u 不唯一；增大 λ 会偏向最小能量解。
+        </p>
+        {busy ? <div className="hint">计算中...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        <div className="cards">
+          {S ? <div className="card"><div className="k">S 尺寸 / rank</div><div className="v">{S.values.length}×{S.values[0].length} / {S.rank}</div></div> : null}
+          {S ? <div className="card"><div className="k">条件数 / 零空间</div><div className="v">{Number(S.condition).toFixed(3)} / {S.nullspace}</div></div> : null}
+          {ctrl ? <div className="card"><div className="k">max |residual|</div><div className="v">{maxRes.toExponential(2)}</div></div> : null}
+          {ctrl ? <div className="card"><div className="k">求解</div><div className="v">{ctrl.active_constraints ? "触及边界" : "无约束"}</div></div> : null}
+        </div>
+        <div id="fwSChart" className="fw-chart"></div>
+        <div id="fwCtrlChart" className="fw-chart"></div>
+        {ctrl ? (
+          <table className="fw-table">
+            <thead><tr><th>target</th><th>设定</th><th>S·u</th><th>残差</th></tr></thead>
+            <tbody>{ctrl.target.map((v,i) => (
+              <tr key={i}><td>{(meta ? meta.target_names[i] : "z"+i)}</td>
+                <td>{Number(v).toFixed(4)}</td>
+                <td>{Number(ctrl.predicted[i]).toFixed(4)}</td>
+                <td>{Number(ctrl.residual[i]).toExponential(2)}</td></tr>
+            ))}</tbody>
+          </table>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+ReactDOM.createRoot(document.getElementById("framework-root")).render(<FrameworkApp/>);
 </script>
 </body>
 </html>
