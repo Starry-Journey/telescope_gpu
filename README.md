@@ -270,3 +270,28 @@ final cost = 5.3124e-03 (cost(true) = 5.3125e-03)
 - `docs/技术报告_代码对齐版_v2.docx`：主技术报告 + 附录D 工程化扩展与代码对齐。
 - `docs/模块化文档索引.md`：模块文档/命令/口径索引。
 - `docs/tutorials/`：逐模块教程与复现命令。
+
+## 通用反演与控制框架（framework/）
+
+`framework/` 把相位差、CCD 前端、灵敏度/控制收敛到同一组契约：
+
+```text
+Frame/Observation -> ParameterSpace -> ForwardModel -> InverseSolver
+                                      -> SensitivityBuilder -> ControlSolver
+```
+
+构建与演示：
+
+```bash
+cmake -S . -B build-framework \
+  -DTEL_BUILD_CUDA=OFF -DTEL_BUILD_FRAMEWORK=ON \
+  -DTEL_BUILD_NUMERICS=ON -DTEL_NUMERICS_BUILD_TESTS=OFF \
+  -DTEL_NUMERICS_BUILD_BENCH=OFF -DTEL_NUMERICS_BUILD_PYTHON=OFF
+cmake --build build-framework -j4
+ctest --test-dir build-framework -R framework --output-on-failure
+./build-framework/framework/framework_demo results/framework
+```
+
+输出：3×5 灵敏度矩阵（rank=3、condition≈1.09、nullspace=2）、控制量、
+`sensitivity.csv/control_result.json/run_manifest.json`。设计说明见
+`docs/框架设计说明.md`，模块说明见 `framework/README.md`。

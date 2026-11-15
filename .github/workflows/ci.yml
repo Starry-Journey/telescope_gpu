@@ -22,6 +22,31 @@ jobs:
       - name: CTest (CPU + Python pipeline)
         run: ctest --test-dir build --output-on-failure
 
+  framework:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libeigen3-dev
+      - name: Configure framework
+        run: >
+          cmake -S . -B build-framework
+          -DTEL_BUILD_CUDA=OFF
+          -DTEL_BUILD_FRAMEWORK=ON
+          -DTEL_BUILD_NUMERICS=ON
+          -DTEL_NUMERICS_BUILD_TESTS=OFF
+          -DTEL_NUMERICS_BUILD_BENCH=OFF
+          -DTEL_NUMERICS_BUILD_PYTHON=OFF
+      - name: Build framework
+        run: cmake --build build-framework -j"$(nproc)"
+      - name: Framework CTest
+        run: ctest --test-dir build-framework -R framework --output-on-failure
+      - name: Framework demo
+        run: ./build-framework/framework/framework_demo results/framework
+
   numerics:
     runs-on: ubuntu-22.04
     steps:
