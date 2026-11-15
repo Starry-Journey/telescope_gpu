@@ -5,12 +5,13 @@ add_library(telescope_framework STATIC
     src/sensitivity.cpp
     src/control.cpp
     src/provenance.cpp
+    src/fits_reader.cpp
     plugins/synthetic_linear.cpp
 )
 target_include_directories(telescope_framework PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/plugins)
-target_link_libraries(telescope_framework PUBLIC telescope_numerics)
+target_link_libraries(telescope_framework PUBLIC telescope_numerics telescope_cpu)
 target_compile_features(telescope_framework PUBLIC cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(telescope_framework PRIVATE -Wall -Wextra -Wpedantic)
