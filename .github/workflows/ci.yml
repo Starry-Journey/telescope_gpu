@@ -22,6 +22,9 @@ jobs:
       - name: CTest (CPU + Python pipeline)
         run: ctest --test-dir build --output-on-failure
 
+      - name: Framework service (numpy-only)
+        run: python3 -m unittest discover -s web/tests -v
+
   framework:
     runs-on: ubuntu-22.04
     steps:
