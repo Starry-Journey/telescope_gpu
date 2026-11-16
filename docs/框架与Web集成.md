@@ -58,6 +58,27 @@ residual ~ -4.6e-10
 - target / S·u / residual 表；
 - 页面明确提示：3×5 秩 3、零空间 2 维，目标可复现但 u 不唯一。
 
+### 3.1 FEA 案例区域（④）
+
+页面再往下是“④ FEA 案例”：
+
+- 下拉选择 `M1/M2/M3` 重力/热工况；
+- 镜面位移热力图（nm）；
+- 15 项 Zernike 柱状图 + 拟合残差；
+- Z4/Z8/Z9 卡片；
+- 环境灵敏度 S（重力/温度）热力图；
+- 合成参考黄条：**不是已求解的 2.5 m FEA 模型**。
+
+接口：
+
+```text
+GET /api/fea/cases
+GET /api/fea/cases/{id}
+GET /api/fea/sensitivity
+```
+
+说明见 `docs/FEA案例与灵敏度.md`。
+
 ![framework sensitivity](../figs/fig_framework_sensitivity.png)
 
 ## 4. 运行
