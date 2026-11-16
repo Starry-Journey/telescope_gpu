@@ -86,10 +86,14 @@ def run_batch(psf: Sequence, defocus: Sequence[float], *,
     rng = np.random.default_rng(seed)
     starts = []
     if cnn is not None:
+        # CNN top-3: prediction plus two small perturbations around it.
         starts.append(cnn)
-    starts.append(np.zeros(3))
-    while len(starts) < n_starts:
-        starts.append(rng.uniform([-1.2, -0.35, -0.35], [1.2, 0.35, 0.35]))
+        while len(starts) < n_starts:
+            starts.append(cnn + rng.normal(0, 0.03, 3))
+    else:
+        starts.append(np.zeros(3))
+        while len(starts) < n_starts:
+            starts.append(rng.uniform([-1.2, -0.35, -0.35], [1.2, 0.35, 0.35]))
     starts = starts[:n_starts]
     payloads = [(s, data, list(defocus), n, maxeval) for s in starts]
     with ProcessPoolExecutor(max_workers=max(1, int(workers))) as ex:
