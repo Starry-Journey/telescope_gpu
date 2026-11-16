@@ -687,6 +687,10 @@ function CustomApp() {
       <div>
         <label className="hint">S 矩阵（行=目标，列=控制）</label>
         <textarea className="matrix-input" value={text} onChange={e=>setText(e.target.value)} />
+        <input type="file" accept=".csv,.txt" className="fea-select" onChange={async e => {
+          const f = e.target.files && e.target.files[0];
+          if (f) setText(await f.text());
+        }} />
         <label className="hint" style={{display:"block",marginTop:8}}>target 向量</label>
         <input className="fea-select" value={target} onChange={e=>setTarget(e.target.value)} />
         <button className="primary" onClick={analyze} disabled={busy}>分析 S（rank/condition）</button>

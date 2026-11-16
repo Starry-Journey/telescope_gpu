@@ -14,7 +14,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake libeigen3-dev libgtest-dev libbenchmark-dev \
-            pybind11-dev python3-numpy python3-scipy python3-astropy python3-matplotlib
+            pybind11-dev python3-numpy python3-scipy python3-astropy python3-matplotlib python3-nlopt
       - name: Configure CPU build
         run: cmake -S . -B build -DTEL_BUILD_CUDA=OFF -DTEL_BUILD_NUMERICS=OFF
       - name: Build CPU layer
