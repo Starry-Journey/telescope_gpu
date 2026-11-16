@@ -15,6 +15,9 @@
   header{background:linear-gradient(135deg,#1f2a44,#2e5e8c);color:#fff;padding:30px 6vw 24px}
   header h1{margin:0 0 6px;font-size:26px}
   header p{margin:0;opacity:.85;font-size:14px}
+  .flow{display:flex;gap:10px;flex-wrap:wrap;padding:12px 6vw;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .flow a{font-size:13px;color:var(--blue);text-decoration:none;background:#eef4fb;border-radius:20px;padding:5px 12px}
+  .flow a:hover{background:#dceafa}
   main{padding:24px 6vw 60px;display:grid;grid-template-columns:340px 1fr;gap:22px}
   @media(max-width:980px){main{grid-template-columns:1fr}}
   .panel{background:#fff;border-radius:14px;padding:20px;box-shadow:0 10px 28px rgba(31,42,68,.08)}
@@ -65,9 +68,16 @@
   <h1>CCD 科学计算小程序</h1>
   <p>相位差 PSF 仿真生成 · CNN 初值 + BOBYQA 反演 · React + FastAPI + Plotly</p>
 </header>
+<nav class="flow">
+  <a href="#product-root">① CCD → PSF</a>
+  <a href="#pdChart">② PD 反演</a>
+  <a href="#framework-root">③ S → 控制量</a>
+  <a href="#fea-root">③B FEA 环境 S</a>
+  <a href="#custom-root">③C 自定义矩阵</a>
+</nav>
 <main>
   <section class="panel">
-    <h2>① 参数 / 生成</h2>
+    <h2>附录 A：PSF 形态 / 快速反演演示（可选）</h2>
     <div class="row"><span>Z4 离焦 c4</span><b id="c4v"></b></div>
     <input id="c4" type="range" min="-1.5" max="1.5" step="0.01" defaultValue="0.6">
     <div class="row"><span>Z8 彗差 x c8</span><b id="c8v"></b></div>
@@ -86,13 +96,13 @@
     </p>
   </section>
   <section class="panel">
-    <h2>② 仿真结果 / 反演结果</h2>
+    <h2>附录 A-2：仿真 / 反演结果</h2>
     <div id="root"></div>
   </section>
 </main>
 <section class="fw-section">
   <div class="panel">
-    <h2>③ 框架：自定义参数灵敏度 + 控制量</h2>
+    <h2>③A M2 5-DOF 代理灵敏度 → 控制量</h2>
     <p class="hint" style="margin:0 0 14px">
       <span class="tag">数据链</span>参数空间 → 3×5 灵敏度矩阵 → 加权最小二乘控制。
       <span class="tag">注意</span>3×5 秩 3、零空间 2 维：目标可复现，控制量不唯一。
@@ -102,7 +112,7 @@
 </section>
 <section class="fw-section">
   <div class="panel">
-    <h2>④ FEA 案例：镜面位移 → Zernike → 环境灵敏度</h2>
+    <h2>③B FEA 案例：镜面位移 → Zernike → 环境灵敏度</h2>
     <p class="hint" style="margin:0 0 14px">
       <span class="tag">合成参考</span>由两版设计资料中的口径、支撑、RMS 锚点生成，<b>不是已求解的 2.5 m FEA 模型</b>。
       真实 FEA 导出后替换 <code>data/fea_cases/*.csv</code>，接口不变。
@@ -112,7 +122,7 @@
 </section>
 <section class="fw-section">
   <div class="panel">
-    <h2>⑤ CCD 数据管线 + 真实感仿真</h2>
+    <h2>① CCD 数据管线 + 真实感仿真 + PSF</h2>
     <p class="hint" style="margin:0 0 14px">
       输入 Z4/Z8/Z9 + 噪声 → 多帧真实感 CCD 星场 → bias/dark/flat 定标 → 提取 PSF cutout。
       <span class="tag">合成数据</span> 不是实测；用于验证从图像到 PSF 的数据链。
@@ -122,7 +132,7 @@
 </section>
 <section class="fw-section">
   <div class="panel">
-    <h2>⑦ 自定义灵敏度矩阵 → 控制量</h2>
+    <h2>③C 自定义灵敏度矩阵 → 控制量</h2>
     <p class="hint" style="margin:0 0 14px">
       粘贴/上传任意 S 矩阵（CSV/空格分隔）→ rank/condition/nullspace → 求解控制量。
       FEA/Zemax 生成 S 后也走同一接口。
@@ -542,6 +552,7 @@ function ProductApp() {
   const [pd, setPd] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [files, setFiles] = useState([]);
   const [p, setP] = useState({c4:0.3, c8:0.1, c9:-0.05, noise:2, stars:20, defocus:"-2,-1,0,1,2"});
 
   async function post(path, body) {
@@ -562,7 +573,28 @@ function ProductApp() {
     if (!ccd) return;
     setBusy(true); setErr("");
     try {
-      setPd(await post("/api/pd/invert", {psf:ccd.psf, defocus:ccd.defocus, truth:ccd.truth, maxeval:500}));
+      setPd(await post("/api/pd/invert", {psf:ccd.psf, defocus:ccd.defocus, truth:ccd.truth, maxeval:400, n_starts:2}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  function fileToB64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result || "");
+        resolve({name:file.name, data_b64:s.includes(",") ? s.split(",")[1] : s});
+      };
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function runFits() {
+    if (!files.length) return;
+    setBusy(true); setErr(""); setPd(null);
+    try {
+      const payload = await Promise.all(Array.from(files).map(fileToB64));
+      setCcd(await post("/api/ccd/upload", {files:payload, defocus:Array.from(files).map((_,i)=>i*1.0)}));
     } catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
@@ -592,7 +624,10 @@ function ProductApp() {
         <label className="hint">离焦序列（waves）</label>
         <input className="fea-select" value={p.defocus} onChange={e=>set("defocus",e.target.value)}/>
         <button className="primary" onClick={runCcd} disabled={busy}>生成 CCD + 定标 + PSF</button>
-        <button className="secondary" onClick={runPd} disabled={busy || !ccd}>用这批 PSF 做 PD 反演</button>
+        <label className="hint" style={{display:"block",marginTop:10}}>或上传真实 FITS（SDSS/HST；单帧只做 PSF 提取）</label>
+        <input type="file" multiple accept=".fits,.fit,.fts" className="fea-select" onChange={e=>setFiles(e.target.files)} />
+        <button className="ghost" onClick={runFits} disabled={busy || !files.length}>读取真实 FITS → PSF</button>
+        <button className="secondary" onClick={runPd} disabled={busy || !ccd || ccd.psf.length < 2}>用这批 PSF 做 PD 反演</button>
         <p className="fw-note">真实风格：相位 PSF + 背景/平场/暗电流/读出噪声 + 饱和/宇宙线。PSF 来自定标后的孤立星。</p>
         {busy ? <div className="hint">计算中...</div> : null}
         {err ? <div className="err">{err}</div> : null}
@@ -602,10 +637,11 @@ function ProductApp() {
           <>
             <div className="cards">
               <div className="card"><div className="k">帧数 / 尺寸</div><div className="v">{ccd.metrics.n_frames} / {ccd.metrics.shape[1]}²</div></div>
-              <div className="card"><div className="k">读出噪声</div><div className="v">{ccd.metrics.read_noise} e-</div></div>
-              <div className="card"><div className="k">PSF 峰值</div><div className="v">{Number(ccd.metrics.psf_peak).toExponential(2)}</div></div>
-              <div className="card"><div className="k">定标星</div><div className="v">({ccd.star.x.toFixed(0)}, {ccd.star.y.toFixed(0)})</div></div>
+              <div className="card"><div className="k">读出噪声</div><div className="v">{ccd.metrics.read_noise || "—"}{ccd.metrics.read_noise ? " e-" : ""}</div></div>
+              <div className="card"><div className="k">PSF 峰值</div><div className="v">{Number(ccd.metrics.psf_peak || 1).toExponential(2)}</div></div>
+              <div className="card"><div className="k">{ccd.real ? "真实 FITS" : "定标星"}</div><div className="v">({ccd.star.x.toFixed(0)}, {ccd.star.y.toFixed(0)})</div></div>
             </div>
+            {ccd.real && ccd.psf.length < 2 ? <div className="fea-warn">单张真实 FITS 只能做 PSF 提取，不能做相位差反演；PD 需要多帧不同离焦。</div> : null}
             <div className="product-frames">
               {ccd.frames.map((f,i) => <figure key={i}><img src={f.cal} alt={"cal "+i}/><figcaption>cal d={f.defocus}</figcaption></figure>)}
             </div>
@@ -614,6 +650,7 @@ function ProductApp() {
             </div>
           </>
         ) : <div className="hint">点击左侧生成，先看真实感 CCD 和 PSF cutout。</div>}
+        <h3 style={{fontSize:15,color:"#2e5e8c",margin:"18px 0 8px"}}>② 相位差反演（PD）</h3>
         {pd ? (
           <>
             <div className="cards">
@@ -721,6 +758,18 @@ ReactDOM.createRoot(document.getElementById("framework-root")).render(<Framework
 ReactDOM.createRoot(document.getElementById("fea-root")).render(<FeaApp/>);
 ReactDOM.createRoot(document.getElementById("product-root")).render(<ProductApp/>);
 ReactDOM.createRoot(document.getElementById("custom-root")).render(<CustomApp/>);
+</script>
+<script>
+window.addEventListener("load", function () {
+  // Data-flow order: CCD -> PD -> S/control -> appendix.
+  var main = document.querySelector("main");
+  var product = document.querySelector("#product-root");
+  var framework = document.querySelector("#framework-root");
+  if (product && product.closest("section") && framework) {
+    document.body.insertBefore(product.closest("section"), framework.closest("section"));
+  }
+  if (main) document.body.appendChild(main);
+});
 </script>
 </body>
 </html>

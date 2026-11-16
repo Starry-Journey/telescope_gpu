@@ -15,6 +15,7 @@ GET  /api/fea/cases             -> synthetic FEA cases + design anchors
 GET  /api/fea/cases/{id}        -> surface map + Zernike fit + targets
 GET  /api/fea/sensitivity       -> environmental S (gravity/thermal)
 POST /api/ccd/pipeline          -> realistic CCD frames + calibrated PSF cutouts
+POST /api/ccd/upload            -> real FITS frames -> PSF cutouts
 POST /api/pd/invert             -> PD/BOBYQA on uploaded PSF stack
 POST /api/sensitivity/custom    -> custom S: rank/condition/nullspace
 POST /api/control/custom        -> custom S + target -> control u
@@ -46,6 +47,7 @@ from ml.two_stage import bobyqa
 from pipeline.realistic import RealisticConfig, preview_frame, simulate_realistic
 from web import framework_service as fw
 from web.ccd_pipeline_service import run_ccd_pipeline
+from web.fits_pipeline_service import run_fits_pipeline
 from web.pd_service import invert_psf
 from web import sensitivity_matrix_service as sm
 from products.sensitivity import service as sens
@@ -117,6 +119,17 @@ class PdRequest(BaseModel):
     defocus: List[float]
     truth: Optional[List[float]] = None
     maxeval: int = 400
+    n_starts: int = 2
+
+
+class FitsFile(BaseModel):
+    name: str
+    data_b64: str
+
+
+class FitsUploadRequest(BaseModel):
+    files: List[FitsFile]
+    defocus: Optional[List[float]] = None
 
 
 class MatrixRequest(BaseModel):
@@ -145,11 +158,21 @@ def ccd_pipeline(req: CcdPipelineRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/ccd/upload")
+def ccd_upload(req: FitsUploadRequest):
+    try:
+        return JSONResponse(run_fits_pipeline(
+            [f.model_dump() if hasattr(f, "model_dump") else f.dict() for f in req.files],
+            req.defocus))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.post("/api/pd/invert")
 def pd_invert(req: PdRequest):
     try:
         return JSONResponse(invert_psf(req.psf, req.defocus, req.truth,
-                                       maxeval=req.maxeval))
+                                       maxeval=req.maxeval, n_starts=req.n_starts))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

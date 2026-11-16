@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import csv
 import json
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -60,6 +62,7 @@ def _to_grid(x, y, z, radius: Optional[float] = None,
             [[None if np.isnan(v) else round(float(v), 6) for v in row] for row in grid])
 
 
+@lru_cache(maxsize=32)
 def case_detail(case_id: str) -> dict:
     info, x, y, z = _read_case(case_id)
     radius = float(info["aperture_radius_mm"])
@@ -91,10 +94,10 @@ def _target_vector(case_id: str) -> np.ndarray:
 
 def environment_sensitivity() -> dict:
     """S from documented gravity and thermal cases (3x2)."""
-    z0 = _target_vector("M1_gravity_0deg")
-    z90 = _target_vector("M1_gravity_90deg")
-    zp = _target_vector("M1_thermal_plus20K")
-    zm = _target_vector("M1_thermal_minus20K")
+    ids = ["M1_gravity_0deg", "M1_gravity_90deg",
+           "M1_thermal_plus20K", "M1_thermal_minus20K"]
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        z0, z90, zp, zm = list(ex.map(_target_vector, ids))
     S = np.column_stack([(z90 - z0) / 90.0, (zp - zm) / 40.0])
     sv = np.linalg.svd(S, compute_uv=False)
     rank = int(np.sum(sv > 1e-12 * max(float(sv[0]), 1.0)))

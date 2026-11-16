@@ -88,6 +88,24 @@ POST /api/ccd/pipeline
 当前示例：c4=0.3、c8=0.1、c9=-0.05、read noise=2 e-、192²、5 帧。PSF cutout 为 64×64，直接送模块 2。
 
 
+### 4.1 真实 FITS 测试
+
+新增 POST /api/ccd/upload，可直接读取已定标 FITS（SDSS/HST/公开归档）。前端文件选择后转 base64；后端用 astropy 读取 2-D/3-D 图像、找孤立星、扣背景、提取 64×64 PSF。
+
+*代码 4-1  真实 FITS 接口*
+
+```cpp
+POST /api/ccd/upload
+{"files":[{"name":"WFPC2.fits","data_b64":"..."}],
+ "defocus":[0]}
+-> {"psf":[[64x64]], "star":{x,y,flux},
+    "metrics":{real:true, background, noise, shape}}
+
+```
+
+用 NASA FITS 样例 WFPC2u5780205r_c0fx.fits（684 KB，200×200）实测：读取成功，检测到星点，输出 1 个 PSF cutout。单帧只能做 PSF 提取，不能做 PD；PD 需要同一星的多帧不同离焦。
+
+
 ## 05 边界
 
 > 不要把合成数据写成实测。
