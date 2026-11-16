@@ -67,3 +67,12 @@ PYTHONPATH=. python3 scripts/pd_batch_256.py \
 - HCIPy 已安装但尚未接入；
 - 真实多离焦仍需要实验/望远镜数据；
 - 生成文件 `data/psf/*.npy` 在 `.gitignore` 中，可随时重建。
+
+## 6. 外部对比结果
+
+scripts/poppy_compare.py 比较 POPPY 与自有 analytic forward（同 256²、0.28 遮拦）：
+
+
+
+FWHM 差 3.5 倍，说明两者**像素尺度/OTF 采样**不同；SSE 小只是因为能量被摊开，
+不能据此说模型一致。POPPY 只用于外部检查，不接入求解器。
