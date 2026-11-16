@@ -1,17 +1,18 @@
 # Zemax 3A：ZMX 解析与 ZOS-API 灵敏度
 
-> 代码：`products/zemax/zmx_parser.py`
-> 接口：`POST /api/zemax/inspect`
-> 目标：ZMX 结构 → M2 5-DOF 扰动 → S（Z4/Z8/Z9）
+> 代码：`products/zemax/zmx_parser.py`、`web/job_queue.py`、`scripts/zemax_zos_worker.py`
+> 接口：`POST /api/zemax/inspect`、`POST /api/zemax/jobs`、`GET /api/jobs/{id}`
 
 ## 1. 当前状态
 
 已实现：
 
-- 读取 **UTF-16LE/ASCII** ZMX；
+- 读取 **UTF-16LE/ASCII** ZMX（带 BOM）；
 - 解析 `ENPD`、`WAVM`、`SURF/TYPE/CURV/CONI/DISZ/GLAS/DIAM/STOP`；
 - 返回面数、stop、口径、波长、面型；
-- 前端 ③A 可上传 `.ZMX` 查看结构。
+- 前端 ③A 可上传 `.ZMX` 查看结构；
+- **SQLite job queue**：提交/claim/complete/fail；
+- Windows worker 脚本 + `--mock` 队列测试。
 
 实测你给的 `2.5m主系统.ZMX`：
 
@@ -35,7 +36,7 @@ ZMX
  -> Zernike/波前分析
  -> Z = (Zplus - Zminus)/(2δ)
  -> S (3x5)
- -> 上传到 Web ③C（或写入 data/zemax/sensitivity.csv）
+ -> Web ③C / CSV
 ```
 
 ### 2.1 控制量
@@ -57,31 +58,37 @@ Z9,...
 
 这个 CSV 直接粘贴/上传到 ⑦“自定义 S”，即可求 rank/condition 和控制量。
 
-## 3. ZOS-API 桥
-
-ZOS-API 是 Windows/.NET + OpticStudio license；不能塞进 Linux Web 容器。
-
-推荐部署：
+## 3. Job queue
 
 ```text
-Linux Web/FastAPI
-  -> job queue
-  -> Windows worker（OpticStudio + ZOS-API）
-  -> sensitivity.csv
-  -> Web 读取
+POST /api/zemax/jobs   {name,data_b64} -> {job_id,status:"queued"}
+GET  /api/jobs/{id}                     -> 状态/结果（不返回 ZMX base64）
+POST /api/jobs/claim   {kind:"zemax"}   -> worker 领取
+POST /api/jobs/{id}/complete {result}   -> worker 完成
 ```
 
-Windows worker 必须记录：
+存储：`results/jobs.sqlite3`（可删，自动重建）。
 
-- OpticStudio 版本；
-- ZMX 文件 sha256；
-- 每个 control 的 δ、单位、surface 编号；
-- Zernike 分析设置（波长/视场/归一化半径）；
-- 输出 CSV 与 run_manifest。
+### 3.1 队列测试（Linux，不需要 Zemax）
+
+```bash
+python3 scripts/zemax_zos_worker.py --mock
+```
+
+返回明确标 `mock: true` 的 3×5 占位 S，只用于验证 Web/队列。
+
+### 3.2 真实 worker（Windows）
+
+```bat
+python scripts\zemax_zos_worker.py --api http://<linux-host>:8000
+```
+
+`products/zemax/zos_bridge.py` 在 Windows 上接 ZOS-API；未配置时
+明确抛错，不返回假值。
 
 ## 4. 边界
 
 - 解析 ≠ 追迹：当前只给结构摘要，不给 S；
 - ZMX 坐标断点/非序列/自由曲面可能超出解析器；
 - 真实 S 必须由 OpticStudio 或经过验证的光线追迹给出；
-- 没有 ZOS-API 时，用 Zemax 导出的 CSV 走 ⑦，不伪造成“自动 3A”。
+- `--mock` 只能做队列测试，不能进报告/论文。

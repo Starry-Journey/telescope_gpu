@@ -16,7 +16,7 @@ def _number(line: str, index: int = 0):
     parts = line.split()
     try:
         v = float(parts[index + 1])
-        return v if math.isfinite(v) else None  # INFINITY is valid ZMX, not JSON
+        return v if math.isfinite(v) else None
     except (IndexError, ValueError):
         return None
 
@@ -65,7 +65,7 @@ def parse_zmx_text(text: str) -> dict:
 
 
 def parse_zmx_bytes(raw: bytes) -> dict:
-    """ZMX is often UTF-16LE with BOM; fall back to latin-1 for byte safety."""
+    """ZMX is often UTF-16LE with BOM; fall back to latin-1."""
     if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
         text = raw.decode("utf-16")
     else:

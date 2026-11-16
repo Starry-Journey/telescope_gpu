@@ -288,6 +288,7 @@ function FrameworkApp() {
   const [err, setErr] = useState("");
   const [zmx, setZmx] = useState(null);
   const [zmxFile, setZmxFile] = useState(null);
+  const [job, setJob] = useState(null);
 
   async function fwPost(path, body) {
     const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
@@ -358,6 +359,27 @@ function FrameworkApp() {
     } catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
+  async function submitZmxJob() {
+    if (!zmxFile) return;
+    setBusy(true); setErr("");
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
+        r.onerror = reject;
+        r.readAsDataURL(zmxFile);
+      });
+      setJob(await fwPost("/api/zemax/jobs", {name:zmxFile.name, data_b64:b64}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function refreshJob() {
+    if (!job) return;
+    const jid = job.job_id || job.id;
+    try { setJob(await (await fetch("/api/jobs/" + jid)).json()); }
+    catch(e) { setErr(String(e)); }
+  }
+
   async function solveC() {
     setBusy(true); setErr("");
     try { setCtrl(await fwPost("/api/framework/control", {target:target.map(Number), lam:Number(lam), use_bounds:true})); }
@@ -395,7 +417,9 @@ function FrameworkApp() {
         <label className="hint" style={{display:"block",marginTop:10}}>上传 .ZMX（仅解析；真实 S 需 ZOS-API）</label>
         <input type="file" accept=".zmx,.ZMX" className="fea-select" onChange={e=>setZmxFile(e.target.files[0] || null)} />
         <button className="ghost" onClick={inspectZmx} disabled={busy || !zmxFile}>解析 ZMX 结构</button>
+        <button className="secondary" onClick={submitZmxJob} disabled={busy || !zmxFile}>提交 3A 队列</button>
         {zmx ? <div className="fw-note">ZMX: {zmx.model.surfaces.length} 面，stop={zmx.model.stop}，ENPD={zmx.model.aperture_mm} mm；{zmx.next}</div> : null}
+        {job ? <div className="fw-note">job {job.job_id || job.id}: {job.status} <button className="ghost" style={{width:"auto",padding:"2px 8px",marginTop:4}} onClick={refreshJob}>刷新</button></div> : null}
         <p className="fw-note">
           目标 z=[Z4,Z8,Z9]；控制 u=[m2_focus, m2_decenter_x, m2_decenter_y, m2_tilt_x, m2_tilt_y]。
           3×5 秩 3，零空间 2 维：目标可复现，但 u 不唯一；增大 λ 会偏向最小能量解。

@@ -52,6 +52,7 @@ from web.pd_service import invert_psf
 from web import sensitivity_matrix_service as sm
 from products.sensitivity import service as sens
 from products.zemax.zmx_parser import parse_zmx_bytes
+from web.job_queue import store as jobs
 
 ROOT = Path(__file__).resolve().parents[2]
 UI = Path(__file__).resolve().parents[1] / "ui"
@@ -147,6 +148,15 @@ class FeaSurfaceRequest(BaseModel):
     label: str = "uploaded"
 
 
+class JobClaimRequest(BaseModel):
+    kind: str = "zemax"
+    worker: str = "zos-worker"
+
+
+class JobCompleteRequest(BaseModel):
+    result: dict
+
+
 class MatrixRequest(BaseModel):
     matrix: List[List[float]]
     target_names: Optional[List[str]] = None
@@ -231,6 +241,58 @@ def framework_control(req: FrameworkControlRequest):
                                        bool(req.use_bounds), req.lower, req.upper))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/zemax/jobs")
+def zemax_job_submit(req: ZmxRequest):
+    try:
+        raw = base64.b64decode(req.data_b64)
+        parse_zmx_bytes(raw)
+        jid = jobs.submit("zemax", {"name": req.name, "data_b64": req.data_b64})
+        return JSONResponse({"job_id": jid, "status": "queued",
+                             "next": "run scripts/zemax_zos_worker.py on Windows/OpticStudio"})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _public_job(job: dict) -> dict:
+    """Never return the multi-MB ZMX base64 in list/status responses."""
+    d = dict(job)
+    p = d.get("payload") or {}
+    if isinstance(p, dict):
+        d["payload"] = {"name": p.get("name"), "bytes": len(p.get("data_b64", ""))}
+    return d
+
+
+@app.get("/api/jobs/{job_id}")
+def job_get(job_id: str):
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="unknown job")
+    return JSONResponse(_public_job(job))
+
+
+@app.get("/api/jobs")
+def job_list():
+    return JSONResponse({"jobs": [_public_job(j) for j in jobs.list()]})
+
+
+@app.post("/api/jobs/claim")
+def job_claim(req: JobClaimRequest):
+    job = jobs.claim(req.kind, req.worker)
+    return JSONResponse({"job": job})
+
+
+@app.post("/api/jobs/{job_id}/complete")
+def job_complete(job_id: str, req: JobCompleteRequest):
+    jobs.complete(job_id, req.result)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/jobs/{job_id}/fail")
+def job_fail(job_id: str, error: str = ""):
+    jobs.fail(job_id, error)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/api/zemax/inspect")
