@@ -25,6 +25,7 @@ def main():
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--starts", type=int, default=3)
     ap.add_argument("--maxeval", type=int, default=20)
+    ap.add_argument("--obscuration", type=float, default=0.0)
     ap.add_argument("--npy", default="")
     ap.add_argument("--defocus", default="-2,-1,0,1,2")
     ap.add_argument("--out", default="results/pd_batch_256.json")
@@ -40,7 +41,8 @@ def main():
         psf = np.clip(psf + rng.normal(0, 1e-4, psf.shape), 0, None)
     t0 = time.perf_counter()
     result = run_batch(psf, defocus, n_starts=args.starts,
-                       workers=args.workers, maxeval=args.maxeval)
+                       workers=args.workers, maxeval=args.maxeval,
+                       obscuration=args.obscuration)
     result["wall_time_s"] = time.perf_counter() - t0
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(result, indent=2), encoding="utf-8")

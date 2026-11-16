@@ -30,20 +30,21 @@ def _normalise(stack: np.ndarray) -> np.ndarray:
     return stack / np.maximum(stack.sum(axis=(1, 2), keepdims=True), 1e-12)
 
 
-def _objective(data, defocus, n):
+def _objective(data, defocus, n, obscuration=0.0):
     def fun(x, grad):
-        model = np.stack([forward_psf_numpy(x, float(d), n=n) for d in defocus], axis=0)
+        model = np.stack([forward_psf_numpy(x, float(d), n=n, obscuration=obscuration)
+                          for d in defocus], axis=0)
         model = _normalise(model)
         return float(np.mean((model - data) ** 2))
     return fun
 
 
 def _solve_one(payload):
-    x0, data, defocus, n, maxeval = payload
+    x0, data, defocus, n, maxeval, obscuration = payload
     opt = nlopt.opt(nlopt.LN_BOBYQA, 3)
     opt.set_lower_bounds([-1.5, -0.5, -0.5])
     opt.set_upper_bounds([1.5, 0.5, 0.5])
-    opt.set_min_objective(_objective(data, defocus, n))
+    opt.set_min_objective(_objective(data, defocus, n, obscuration))
     opt.set_maxeval(int(maxeval))
     opt.set_ftol_rel(1e-8)
     opt.set_xtol_rel(1e-6)
@@ -79,7 +80,8 @@ def _cnn_start(stack: np.ndarray) -> Optional[np.ndarray]:
 
 def run_batch(psf: Sequence, defocus: Sequence[float], *,
               n_starts: int = 3, workers: int = 4,
-              maxeval: int = 200, seed: int = 7) -> dict:
+              maxeval: int = 200, seed: int = 7,
+              obscuration: float = 0.0) -> dict:
     data = _normalise(np.clip(np.asarray(psf, dtype=float), 0, None))
     n = int(data.shape[1])
     cnn = _cnn_start(data)
@@ -95,7 +97,7 @@ def run_batch(psf: Sequence, defocus: Sequence[float], *,
         while len(starts) < n_starts:
             starts.append(rng.uniform([-1.2, -0.35, -0.35], [1.2, 0.35, 0.35]))
     starts = starts[:n_starts]
-    payloads = [(s, data, list(defocus), n, maxeval) for s in starts]
+    payloads = [(s, data, list(defocus), n, maxeval, obscuration) for s in starts]
     with ProcessPoolExecutor(max_workers=max(1, int(workers))) as ex:
         results = list(ex.map(_solve_one, payloads))
     best = min(results, key=lambda r: r[2])
@@ -104,6 +106,7 @@ def run_batch(psf: Sequence, defocus: Sequence[float], *,
         "starts": [s.tolist() for s in starts],
         "cnn_start": cnn.tolist() if cnn is not None else None,
         "workers": workers,
+        "obscuration": obscuration,
         "results": [{"zernike": r[0].tolist(), "nfev": r[1], "cost": r[2]} for r in results],
         "best": {"zernike": best[0].tolist(), "nfev": best[1], "cost": best[2]},
         "note": "batch PD; 256² is offline, not a synchronous Web request",

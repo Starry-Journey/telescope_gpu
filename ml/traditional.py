@@ -16,13 +16,13 @@ import numpy as np
 from scipy.optimize import least_squares
 
 
-def _basis(n: int, pupil_radius: float = 0.45):
+def _basis(n: int, pupil_radius: float = 0.45, obscuration: float = 0.0):
     x = np.linspace(-1.0, 1.0, n)
     yy, xx = np.meshgrid(x, x, indexing="ij")
     r = np.sqrt(xx * xx + yy * yy)
     rho = r / pupil_radius
     theta = np.arctan2(yy, xx)
-    mask = (r <= pupil_radius).astype(float)
+    mask = ((r <= pupil_radius) & (r >= obscuration * pupil_radius)).astype(float)
     z4 = np.sqrt(3.0) * (2.0 * rho ** 2 - 1.0)
     radial = np.sqrt(8.0) * (3.0 * rho ** 3 - 2.0 * rho)
     z8 = radial * np.cos(theta)
@@ -32,9 +32,10 @@ def _basis(n: int, pupil_radius: float = 0.45):
 
 def forward_psf_numpy(coeff: Sequence[float], defocus: float,
                       n: int = 64, oversample: int = 2,
-                      pupil_radius: float = 0.45) -> np.ndarray:
+                      pupil_radius: float = 0.45,
+                      obscuration: float = 0.0) -> np.ndarray:
     fft_n = n * oversample
-    mask, z4, z8, z9 = _basis(fft_n, pupil_radius)
+    mask, z4, z8, z9 = _basis(fft_n, pupil_radius, obscuration)
     phase = 2 * np.pi * (coeff[0] * z4 + coeff[1] * z8 + coeff[2] * z9 + defocus * z4)
     pupil = mask * np.exp(1j * phase)
     field = np.fft.fftshift(np.fft.fft2(pupil, norm="ortho"))
@@ -48,8 +49,10 @@ def forward_psf_numpy(coeff: Sequence[float], defocus: float,
 
 
 def forward_stack_numpy(coeff: Sequence[float], n: int = 64,
-                        defocus=(-2.0, -1.0, 0.0, 1.0, 2.0)) -> np.ndarray:
-    return np.stack([forward_psf_numpy(coeff, d, n) for d in defocus], axis=0)
+                        defocus=(-2.0, -1.0, 0.0, 1.0, 2.0),
+                        obscuration: float = 0.0) -> np.ndarray:
+    return np.stack([forward_psf_numpy(coeff, d, n, obscuration=obscuration)
+                     for d in defocus], axis=0)
 
 
 @dataclass
