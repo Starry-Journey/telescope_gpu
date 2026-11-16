@@ -46,7 +46,13 @@ class RealisticConfig:
     crpix: Optional[Tuple[float, float]] = None
     psf_fwhm_pix: float = 2.2
     psf_beta: float = 3.5
-    psf_model: str = "moffat"       # "moffat" or "gaussian"
+    psf_model: str = "moffat"       # "moffat", "gaussian" or "phase"
+    z4: float = 0.0                 # waves
+    z8: float = 0.0                 # waves (project: x coma)
+    z9: float = 0.0                 # waves (project: y coma)
+    defocus_waves: Tuple[float, ...] = (0.0, 1.0, -1.0, 2.0, -2.0)
+    psf_fft_size: int = 128
+    psf_pupil_radius: float = 0.45
     diffraction_spikes: bool = True
     spike_fraction: float = 0.10
     spike_length: float = 22.0
@@ -57,6 +63,7 @@ class RealisticConfig:
     target_flux: float = 1200.0
     target_start: Tuple[float, float] = (90.0, 100.0)
     target_velocity: Tuple[float, float] = (1.4, 0.8)
+    cal_star: Optional[Tuple[float, float, float]] = None  # x,y,flux
 
     exptime: float = 30.0
     bias_level: float = 1200.0
@@ -93,6 +100,17 @@ def _gaussian_kernel(sigma: float, size: int = 31) -> np.ndarray:
     c = (size - 1) / 2.0
     k = np.exp(-((x - c) ** 2 + (y - c) ** 2) / (2 * sigma ** 2))
     return k / k.sum()
+
+
+def _phase_kernel(cfg: RealisticConfig, defocus: float, size: int = 63) -> np.ndarray:
+    """Fourier-optics PSF matching ml.traditional.forward_psf_numpy."""
+    from ml.traditional import forward_psf_numpy
+    psf = forward_psf_numpy([cfg.z4, cfg.z8, cfg.z9], float(defocus), n=64)
+    c = psf.shape[0] // 2
+    half = size // 2
+    k = psf[c - half:c + half + 1, c - half:c + half + 1]
+    k = np.clip(k, 0, None)
+    return k / max(float(k.sum()), 1e-30)
 
 
 def _add_psf(image: np.ndarray, x: float, y: float, flux: float,
@@ -177,6 +195,15 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
                       "y_ideal": float(yi[0]), "x_det": float(xd),
                       "y_det": float(yd), "flux": float(flux)})
 
+    if cfg.cal_star is not None:
+        cx, cy, cflux = cfg.cal_star
+        stars = [s for s in stars if (s["x_det"] - cx) ** 2 + (s["y_det"] - cy) ** 2 > 45 ** 2]
+        xi, yi = undistort_pixels(np.array([cx]), np.array([cy]), cfg)
+        sky = wcs.pixel_to_world(float(xi[0]), float(yi[0])).icrs
+        stars.append({"id": 9999, "ra": float(sky.ra.deg), "dec": float(sky.dec.deg),
+                      "x_ideal": float(xi[0]), "y_ideal": float(yi[0]),
+                      "x_det": float(cx), "y_det": float(cy), "flux": float(cflux)})
+
     flat = _flat_field(cfg, rng)
     bias = cfg.bias_level + rng.normal(0, cfg.read_noise, (cfg.height, cfg.width))
     dark = np.clip(cfg.dark_current + rng.normal(0, 0.08 * cfg.dark_current,
@@ -196,13 +223,19 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
     flat_hdu = fits.PrimaryHDU(flat.astype(np.float32)); flat_hdu.header["BUNIT"] = "1"
     flat_hdu.writeto(cal_dir / "flat.fits", overwrite=True)
 
-    if cfg.psf_model == "gaussian":
-        kernel = _gaussian_kernel(cfg.psf_fwhm_pix / 2.355)
+    if cfg.psf_model == "phase":
+        kernels = [_phase_kernel(cfg, float(cfg.defocus_waves[i % len(cfg.defocus_waves)]))
+                   for i in range(cfg.n_frames)]
+    elif cfg.psf_model == "gaussian":
+        k = _gaussian_kernel(cfg.psf_fwhm_pix / 2.355)
+        kernels = [k for _ in range(cfg.n_frames)]
     else:
-        kernel = _moffat_kernel(cfg.psf_fwhm_pix, cfg.psf_beta)
+        k = _moffat_kernel(cfg.psf_fwhm_pix, cfg.psf_beta)
+        kernels = [k for _ in range(cfg.n_frames)]
 
     truth = []
     for frame in range(cfg.n_frames):
+        kernel = kernels[frame]
         jx, jy = rng.normal(0, cfg.jitter, 2)
         scene = np.zeros((cfg.height, cfg.width), dtype=np.float64)
         # background gradient + scattered light
@@ -214,7 +247,8 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
             x, y = s["x_det"] + jx, s["y_det"] + jy
             # simple wavelength-independent flux scaling with airmass ignored
             _add_psf(scene, x, y, s["flux"], kernel)
-            _add_spikes(scene, x, y, s["flux"], cfg, angle=math.radians(cfg.rotation_deg))
+            if cfg.psf_model != "phase":
+                _add_spikes(scene, x, y, s["flux"], cfg, angle=math.radians(cfg.rotation_deg))
         tx = cfg.target_start[0] + cfg.target_velocity[0] * frame + jx
         ty = cfg.target_start[1] + cfg.target_velocity[1] * frame + jy
         _add_psf(scene, tx, ty, cfg.target_flux, kernel)
@@ -252,6 +286,7 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
 
         raw = np.clip(raw, 0, cfg.full_well)
         truth.append({"frame": frame, "x_det": tx, "y_det": ty,
+                      "defocus": float(cfg.defocus_waves[frame % len(cfg.defocus_waves)]),
                       "ra": float(wcs.pixel_to_world(*undistort_pixels(
                           np.array([tx]), np.array([ty]), cfg)).icrs.ra.deg),
                       "dec": float(wcs.pixel_to_world(*undistort_pixels(
@@ -267,6 +302,10 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
         h["BKG"] = cfg.background
         h["PSF"] = cfg.psf_model
         h["FWHM"] = cfg.psf_fwhm_pix
+        h["DEFOCUS"] = float(cfg.defocus_waves[frame % len(cfg.defocus_waves)])
+        h["Z4"] = cfg.z4
+        h["Z8"] = cfg.z8
+        h["Z9"] = cfg.z9
         h["NSTARS"] = len(stars)
         for i, s in enumerate(stars[:99]):
             h[f"STAR{i:02d}"] = f"{s['x_det']:.3f} {s['y_det']:.3f} {s['flux']:.1f}"
@@ -277,7 +316,8 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
                                             "x_det", "y_det", "flux"])
         wr.writeheader(); wr.writerows(stars)
     with open(root / "truth.csv", "w", newline="", encoding="utf-8") as fh:
-        wr = csv.DictWriter(fh, fieldnames=["frame", "x_det", "y_det", "ra", "dec", "flux"])
+        wr = csv.DictWriter(fh, fieldnames=["frame", "x_det", "y_det", "defocus",
+                                            "ra", "dec", "flux"])
         wr.writeheader(); wr.writerows(truth)
     info = {"data_dir": str(root), "mode": "realistic", "n_frames": cfg.n_frames,
             "n_stars": len(stars), "config": asdict(cfg),

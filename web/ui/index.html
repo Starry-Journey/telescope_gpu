@@ -53,6 +53,11 @@
   .fea-chart{width:100%;height:280px}
   .fea-select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px;margin-top:6px}
   .fea-warn{background:#fff6e5;color:#7a5b1e;border-radius:8px;padding:9px;font-size:12px;line-height:1.55;margin-top:10px}
+  .product-frames{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px}
+  .product-frames figure{margin:0;background:#0b1020;border-radius:8px;overflow:hidden}
+  .product-frames img{width:100%;display:block}
+  .product-frames figcaption{font-size:10px;color:#c9d6e3;text-align:center;padding:3px}
+  .matrix-input{width:100%;height:120px;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:Consolas,monospace;font-size:12px}
 </style>
 </head>
 <body>
@@ -103,6 +108,26 @@
       真实 FEA 导出后替换 <code>data/fea_cases/*.csv</code>，接口不变。
     </p>
     <div id="fea-root"></div>
+  </div>
+</section>
+<section class="fw-section">
+  <div class="panel">
+    <h2>⑤ CCD 数据管线 + 真实感仿真</h2>
+    <p class="hint" style="margin:0 0 14px">
+      输入 Z4/Z8/Z9 + 噪声 → 多帧真实感 CCD 星场 → bias/dark/flat 定标 → 提取 PSF cutout。
+      <span class="tag">合成数据</span> 不是实测；用于验证从图像到 PSF 的数据链。
+    </p>
+    <div id="product-root"></div>
+  </div>
+</section>
+<section class="fw-section">
+  <div class="panel">
+    <h2>⑦ 自定义灵敏度矩阵 → 控制量</h2>
+    <p class="hint" style="margin:0 0 14px">
+      粘贴/上传任意 S 矩阵（CSV/空格分隔）→ rank/condition/nullspace → 求解控制量。
+      FEA/Zemax 生成 S 后也走同一接口。
+    </p>
+    <div id="custom-root"></div>
   </div>
 </section>
 <script type="text/babel">
@@ -512,9 +537,186 @@ function FeaApp() {
   );
 }
 
+function ProductApp() {
+  const [ccd, setCcd] = useState(null);
+  const [pd, setPd] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [p, setP] = useState({c4:0.3, c8:0.1, c9:-0.05, noise:2, stars:20, defocus:"-2,-1,0,1,2"});
+
+  async function post(path, body) {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json();
+  }
+
+  async function runCcd() {
+    setBusy(true); setErr(""); setPd(null);
+    try {
+      const defocus = p.defocus.split(",").map(Number).filter(v => Number.isFinite(v));
+      setCcd(await post("/api/ccd/pipeline", {...p, defocus, seed:3}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function runPd() {
+    if (!ccd) return;
+    setBusy(true); setErr("");
+    try {
+      setPd(await post("/api/pd/invert", {psf:ccd.psf, defocus:ccd.defocus, truth:ccd.truth, maxeval:500}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  useEffect(() => {
+    if (!pd) return;
+    const el = document.getElementById("pdChart");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("pdChart", [
+      {type:"bar", name:"truth", x:["Z4","Z8","Z9"], y:[pd.truth.Z4,pd.truth.Z8,pd.truth.Z9], marker:{color:"#2e5e8c"}},
+      {type:"bar", name:"PD", x:["Z4","Z8","Z9"], y:[pd.zernike.Z4,pd.zernike.Z8,pd.zernike.Z9], marker:{color:"#2a9d8f"}},
+    ], {barmode:"group", margin:{l:40,r:10,t:24,b:30}, paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"waves"}, legend:{orientation:"h"}}, {displayModeBar:false});
+  }, [pd]);
+
+  const set = (k,v) => setP({...p, [k]: v});
+  return (
+    <div className="fea-grid">
+      <div>
+        <div className="numgrid">
+          <label>Z4<input type="number" step="0.01" value={p.c4} onChange={e=>set("c4",Number(e.target.value))}/></label>
+          <label>Z8<input type="number" step="0.01" value={p.c8} onChange={e=>set("c8",Number(e.target.value))}/></label>
+          <label>Z9<input type="number" step="0.01" value={p.c9} onChange={e=>set("c9",Number(e.target.value))}/></label>
+        </div>
+        <div className="row"><span>读出噪声 e-</span><b>{p.noise}</b></div>
+        <input type="range" min="0.5" max="10" step="0.5" value={p.noise} onChange={e=>set("noise",Number(e.target.value))}/>
+        <div className="row"><span>星数</span><b>{p.stars}</b></div>
+        <input type="range" min="8" max="40" step="1" value={p.stars} onChange={e=>set("stars",Number(e.target.value))}/>
+        <label className="hint">离焦序列（waves）</label>
+        <input className="fea-select" value={p.defocus} onChange={e=>set("defocus",e.target.value)}/>
+        <button className="primary" onClick={runCcd} disabled={busy}>生成 CCD + 定标 + PSF</button>
+        <button className="secondary" onClick={runPd} disabled={busy || !ccd}>用这批 PSF 做 PD 反演</button>
+        <p className="fw-note">真实风格：相位 PSF + 背景/平场/暗电流/读出噪声 + 饱和/宇宙线。PSF 来自定标后的孤立星。</p>
+        {busy ? <div className="hint">计算中...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        {ccd ? (
+          <>
+            <div className="cards">
+              <div className="card"><div className="k">帧数 / 尺寸</div><div className="v">{ccd.metrics.n_frames} / {ccd.metrics.shape[1]}²</div></div>
+              <div className="card"><div className="k">读出噪声</div><div className="v">{ccd.metrics.read_noise} e-</div></div>
+              <div className="card"><div className="k">PSF 峰值</div><div className="v">{Number(ccd.metrics.psf_peak).toExponential(2)}</div></div>
+              <div className="card"><div className="k">定标星</div><div className="v">({ccd.star.x.toFixed(0)}, {ccd.star.y.toFixed(0)})</div></div>
+            </div>
+            <div className="product-frames">
+              {ccd.frames.map((f,i) => <figure key={i}><img src={f.cal} alt={"cal "+i}/><figcaption>cal d={f.defocus}</figcaption></figure>)}
+            </div>
+            <div className="product-frames" style={{marginTop:8}}>
+              {ccd.psf_png.map((src,i) => <figure key={i}><img src={src} alt={"psf "+i}/><figcaption>PSF d={ccd.defocus[i]}</figcaption></figure>)}
+            </div>
+          </>
+        ) : <div className="hint">点击左侧生成，先看真实感 CCD 和 PSF cutout。</div>}
+        {pd ? (
+          <>
+            <div className="cards">
+              <div className="card"><div className="k">PD 评估</div><div className="v">{pd.nfev}</div></div>
+              <div className="card"><div className="k">cost</div><div className="v">{Number(pd.cost).toExponential(2)}</div></div>
+              <div className="card"><div className="k">Z4 误差</div><div className="v">{(pd.zernike.Z4 - pd.truth.Z4).toFixed(3)}</div></div>
+              <div className="card"><div className="k">Z8/Z9 误差</div><div className="v">{(pd.zernike.Z8 - pd.truth.Z8).toFixed(3)} / {(pd.zernike.Z9 - pd.truth.Z9).toFixed(3)}</div></div>
+            </div>
+            <div id="pdChart" className="fea-chart"></div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CustomApp() {
+  const [text, setText] = useState("4.040,0.083,-0.083,0.976,-0.976\n0,-4.633,0,0,0\n0,0,-4.633,0,0");
+  const [target, setTarget] = useState("0.23377,-0.09266,0.04633");
+  const [S, setS] = useState(null);
+  const [ctrl, setCtrl] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  function parseMatrix(t) {
+    const rows = t.trim().split(/\n+/).map(line => line.split(/[,\s]+/).filter(Boolean).map(Number));
+    if (!rows.length || rows.some(r => r.length !== rows[0].length || r.some(v => !Number.isFinite(v)))) throw new Error("矩阵行/列不齐或含非数字");
+    return rows;
+  }
+  function parseVec(t) {
+    return t.split(/[,\s]+/).filter(Boolean).map(Number);
+  }
+  async function post(path, body) {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json();
+  }
+  async function analyze() {
+    setBusy(true); setErr("");
+    try {
+      const m = parseMatrix(text);
+      setS(await post("/api/sensitivity/custom", {matrix:m}));
+      setCtrl(null);
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+  async function solve() {
+    setBusy(true); setErr("");
+    try {
+      const m = parseMatrix(text);
+      setCtrl(await post("/api/control/custom", {matrix:m, target:parseVec(target), lam:1e-8, use_bounds:false}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+  useEffect(() => {
+    if (!S) return;
+    const el = document.getElementById("customSChart");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("customSChart", [{z:S.values, x:S.control_names, y:S.target_names, type:"heatmap", colorscale:"RdBu", zmid:0,
+      text:S.values.map(r=>r.map(v=>Number(v).toFixed(2))), texttemplate:"%{text}"}],
+      {margin:{l:48,r:10,t:24,b:34}, paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)", yaxis:{autorange:"reversed"}}, {displayModeBar:false});
+  }, [S]);
+  useEffect(() => {
+    if (!ctrl || !S) return;
+    const el = document.getElementById("customUChart");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("customUChart", [{type:"bar", x:S.control_names, y:ctrl.u, marker:{color:"#2a9d8f"}, text:ctrl.u.map(v=>Number(v).toFixed(3)), textposition:"outside"}],
+      {margin:{l:42,r:10,t:24,b:34}, paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"u"}, xaxis:{tickangle:-25}}, {displayModeBar:false});
+  }, [ctrl, S]);
+
+  return (
+    <div className="fea-grid">
+      <div>
+        <label className="hint">S 矩阵（行=目标，列=控制）</label>
+        <textarea className="matrix-input" value={text} onChange={e=>setText(e.target.value)} />
+        <label className="hint" style={{display:"block",marginTop:8}}>target 向量</label>
+        <input className="fea-select" value={target} onChange={e=>setTarget(e.target.value)} />
+        <button className="primary" onClick={analyze} disabled={busy}>分析 S（rank/condition）</button>
+        <button className="secondary" onClick={solve} disabled={busy || !S}>求解控制量 u</button>
+        <p className="fw-note">支持任意 m×n；FEA/Zemax 只要输出同格式 CSV 即可接入。u 是最小范数/正则解，不唯一。</p>
+        {busy ? <div className="hint">计算中...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        {S ? (
+          <div className="cards">
+            <div className="card"><div className="k">S 尺寸</div><div className="v">{S.shape[0]}×{S.shape[1]}</div></div>
+            <div className="card"><div className="k">rank</div><div className="v">{S.rank}</div></div>
+            <div className="card"><div className="k">condition</div><div className="v">{Number(S.condition).toFixed(3)}</div></div>
+            <div className="card"><div className="k">nullspace</div><div className="v">{S.nullspace}</div></div>
+          </div>
+        ) : null}
+        <div id="customSChart" className="fea-chart"></div>
+        <div id="customUChart" className="fea-chart"></div>
+        {ctrl ? <div className="fw-note">max |residual| = {Math.max(...ctrl.residual.map(v=>Math.abs(v))).toExponential(2)}</div> : null}
+      </div>
+    </div>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 ReactDOM.createRoot(document.getElementById("framework-root")).render(<FrameworkApp/>);
 ReactDOM.createRoot(document.getElementById("fea-root")).render(<FeaApp/>);
+ReactDOM.createRoot(document.getElementById("product-root")).render(<ProductApp/>);
+ReactDOM.createRoot(document.getElementById("custom-root")).render(<CustomApp/>);
 </script>
 </body>
 </html>

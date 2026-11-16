@@ -14,6 +14,10 @@ POST /api/framework/control     -> minimum-norm control u + residual
 GET  /api/fea/cases             -> synthetic FEA cases + design anchors
 GET  /api/fea/cases/{id}        -> surface map + Zernike fit + targets
 GET  /api/fea/sensitivity       -> environmental S (gravity/thermal)
+POST /api/ccd/pipeline          -> realistic CCD frames + calibrated PSF cutouts
+POST /api/pd/invert             -> PD/BOBYQA on uploaded PSF stack
+POST /api/sensitivity/custom    -> custom S: rank/condition/nullspace
+POST /api/control/custom        -> custom S + target -> control u
 GET  /api/metrics    -> pipeline metrics (if available)
 GET  /api/figures    -> list of pipeline figures
 """
@@ -41,6 +45,9 @@ from ml.traditional import forward_stack_numpy
 from ml.two_stage import bobyqa
 from pipeline.realistic import RealisticConfig, preview_frame, simulate_realistic
 from web import framework_service as fw
+from web.ccd_pipeline_service import run_ccd_pipeline
+from web.pd_service import invert_psf
+from web import sensitivity_matrix_service as sm
 from products.sensitivity import service as sens
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -93,6 +100,76 @@ class FrameworkControlRequest(BaseModel):
     use_bounds: bool = True
     lower: Optional[List[float]] = None
     upper: Optional[List[float]] = None
+
+
+class CcdPipelineRequest(BaseModel):
+    c4: float = 0.3
+    c8: float = 0.1
+    c9: float = -0.05
+    noise: float = 2.0
+    stars: int = 20
+    defocus: List[float] = [-2.0, -1.0, 0.0, 1.0, 2.0]
+    seed: int = 3
+
+
+class PdRequest(BaseModel):
+    psf: List[List[List[float]]]
+    defocus: List[float]
+    truth: Optional[List[float]] = None
+    maxeval: int = 400
+
+
+class MatrixRequest(BaseModel):
+    matrix: List[List[float]]
+    target_names: Optional[List[str]] = None
+    control_names: Optional[List[str]] = None
+    units: Optional[List[str]] = None
+
+
+class MatrixControlRequest(BaseModel):
+    matrix: List[List[float]]
+    target: List[float]
+    lam: float = 1e-8
+    use_bounds: bool = True
+    lower: Optional[List[float]] = None
+    upper: Optional[List[float]] = None
+
+
+@app.post("/api/ccd/pipeline")
+def ccd_pipeline(req: CcdPipelineRequest):
+    try:
+        return JSONResponse(run_ccd_pipeline(
+            c4=req.c4, c8=req.c8, c9=req.c9, noise=req.noise,
+            stars=req.stars, defocus=req.defocus, seed=req.seed))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/pd/invert")
+def pd_invert(req: PdRequest):
+    try:
+        return JSONResponse(invert_psf(req.psf, req.defocus, req.truth,
+                                       maxeval=req.maxeval))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/sensitivity/custom")
+def sensitivity_custom(req: MatrixRequest):
+    try:
+        return JSONResponse(sm.analyze(req.matrix, req.target_names,
+                                       req.control_names, req.units))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/control/custom")
+def control_custom(req: MatrixControlRequest):
+    try:
+        return JSONResponse(sm.control(req.matrix, req.target, req.lam,
+                                       req.use_bounds, req.lower, req.upper))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/framework")
