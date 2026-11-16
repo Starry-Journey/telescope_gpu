@@ -25,7 +25,6 @@ def _manifest() -> dict:
 
 
 def list_cases() -> dict:
-    """List synthetic/real FEA cases without loading their grids."""
     m = _manifest()
     return {
         "synthetic": m.get("synthetic", True),
@@ -36,7 +35,6 @@ def list_cases() -> dict:
 
 
 def _read_case(case_id: str) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
-    """Read one case CSV and its manifest metadata."""
     m = _manifest()
     info = next((c for c in m["cases"] if c["id"] == case_id), None)
     if info is None:
@@ -68,7 +66,7 @@ def _to_grid(x, y, z, radius: Optional[float] = None,
 def case_detail(case_id: str) -> dict:
     info, x, y, z = _read_case(case_id)
     radius = float(info["aperture_radius_mm"])
-    fit = fit_surface(x, y, z, radius, n_terms=15)
+    fit = fit_surface(x, y, z, radius, n_terms=66)
     # project labels for the three targets the telescope report uses
     idx = {3: "Z4", 6: "Z9", 7: "Z8"}  # 0-based term indices in TERMS
     coeff = fit["coeff_nm"]
@@ -80,6 +78,7 @@ def case_detail(case_id: str) -> dict:
         "fit": {
             "coefficients_nm": coeff,
             "terms": fit["terms"],
+            "display_terms": 15,
             "rms_nm": fit["rms_nm"],
             "residual_rms_nm": fit["residual_rms_nm"],
             "targets_nm": targets,
@@ -88,7 +87,6 @@ def case_detail(case_id: str) -> dict:
 
 
 def _target_vector(case_id: str) -> np.ndarray:
-    """Return [Z4,Z8,Z9] in waves from the 15-term fit."""
     """Return [Z4, Z8, Z9] in waves from the 15-term fit."""
     detail = case_detail(case_id)
     t = detail["fit"]["targets_nm"]
@@ -96,7 +94,6 @@ def _target_vector(case_id: str) -> np.ndarray:
 
 
 def environment_sensitivity() -> dict:
-    """Gravity/thermal differential -> 3x2 environmental S (parallel fits)."""
     """S from documented gravity and thermal cases (3x2)."""
     ids = ["M1_gravity_0deg", "M1_gravity_90deg",
            "M1_thermal_plus20K", "M1_thermal_minus20K"]
@@ -118,4 +115,28 @@ def environment_sensitivity() -> dict:
         "source_cases": ["M1_gravity_0deg", "M1_gravity_90deg",
                           "M1_thermal_plus20K", "M1_thermal_minus20K"],
         "warning": "Synthetic surfaces scaled to documented RMS; replace with real FEA/FEA-Zemax before physical claims",
+    }
+
+def custom_surface(x, y, z, radius: float, obscuration: float = 0.0,
+                  label: str = "uploaded") -> dict:
+    """Fit an uploaded FEA surface (x,y,dz in mm/nm) with the 66-term basis."""
+    x = np.asarray(x, dtype=float).ravel()
+    y = np.asarray(y, dtype=float).ravel()
+    z = np.asarray(z, dtype=float).ravel()
+    if not (x.size == y.size == z.size) or x.size < 20:
+        raise ValueError("x/y/z must have the same length >= 20")
+    fit = fit_surface(x, y, z, float(radius), n_terms=66)
+    idx = {3: "Z4", 6: "Z9", 7: "Z8"}
+    targets = {label: float(fit["coeff_nm"][i]) for i, label in idx.items()}
+    xa, ya, grid = _to_grid(x, y, z, float(radius), float(obscuration))
+    return {
+        "case": {"id": label, "surface": label, "load_case": "uploaded",
+                 "aperture_radius_mm": float(radius),
+                 "obscuration_ratio": float(obscuration),
+                 "unit": "nm", "synthetic": False, "source_page": "upload"},
+        "grid": {"x": xa, "y": ya, "z": grid, "unit": "nm"},
+        "fit": {"coefficients_nm": fit["coeff_nm"], "terms": fit["terms"],
+                "display_terms": 15, "rms_nm": fit["rms_nm"],
+                "residual_rms_nm": fit["residual_rms_nm"],
+                "targets_nm": targets},
     }

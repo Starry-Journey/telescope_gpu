@@ -15,13 +15,11 @@ from ml.traditional import forward_psf_numpy
 
 
 def _normalise(stack: np.ndarray) -> np.ndarray:
-    """Normalize each PSF frame to unit sum; PD objective is scale-free."""
     s = stack.sum(axis=(1, 2), keepdims=True)
     return stack / np.maximum(s, 1e-12)
 
 
 def _objective(data: np.ndarray, defocus: Sequence[float], n: int):
-    """Mean squared error between normalized model/data PSF stacks."""
     def fun(x, grad):
         model = np.stack([forward_psf_numpy(x, float(d), n=n) for d in defocus], axis=0)
         model = _normalise(model)

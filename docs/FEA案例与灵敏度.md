@@ -66,14 +66,14 @@ manifest 记录 surface、load_case、口径/遮拦、目标/实际 RMS、来源
 
 ## 03 面形 -> Zernike
 
-> 15 项合成拟合，66 项是升级点。
+> 66 项拟合；UI 显示前 15 项。
 
-在口径内对 z(x,y) 做最小二乘：A c = z；A 的列是 Zernike 多项式。当前实现 15 项 Noll-like 基，工程标签 j4->Z4、j7->Z9、j8->Z8；正式版扩展到 66 项，并同时输出工程标签/Noll 编号。
+在口径内对 z(x,y) 做最小二乘：A c = z；A 的列是 Zernike 多项式。当前实现 66 项 Noll-like 基（n=0..10），UI 默认显示前 15 项；工程标签 j4->Z4、j7->Z9、j8->Z8，完整输出保留 66 项系数。
 
 *代码 3-1  拟合*
 
 ```cpp
-mask, A = zernike_basis(x, y, radius, n_terms=15)
+mask, A = zernike_basis(x, y, radius, n_terms=66)
 coeff = lstsq(A, z[mask])
 residual = z[mask] - A @ coeff
 ```
@@ -89,9 +89,9 @@ residual = z[mask] - A @ coeff
 
 注意：项目 Z8/Z9 是 x/y 彗差，不是 Noll 的 Z8/Z9；输出必须双标签，避免和 Zemax 的 Noll 序号混用。
 
-![图 3-1  M1 合成面形、15 项 Zernike 拟合、环境 S。](figs/fig_fea_case_sensitivity.png)
+![图 3-1  M1 合成面形、Zernike 拟合（显示前 15 项）、环境 S。](figs/fig_fea_case_sensitivity.png)
 
-*图 3-1  M1 合成面形、15 项 Zernike 拟合、环境 S。*
+*图 3-1  M1 合成面形、Zernike 拟合（显示前 15 项）、环境 S。*
 
 
 ## 04 环境灵敏度
@@ -128,7 +128,7 @@ rank=2、condition≈23.07。热列接近零是因为合成热工况只有对称
 | GET /api/fea/cases/{id} | 面形网格 + Zernike + Z4/Z8/Z9 |
 | GET /api/fea/sensitivity | 3x2 环境 S + rank/condition |
 
-前端“④ FEA 案例”区域：工况下拉、面形热力图、15 项 Zernike 柱状图、Z4/Z8/Z9 卡片、环境 S 热力图、合成参考黄条。
+前端“③B FEA 案例”区域：工况/CSV 上传、面形热力图、前 15 项 Zernike 柱状图、Z4/Z8/Z9 卡片、环境 S 热力图、合成参考黄条。
 
 
 ## 06 参数与控制量对应
@@ -168,7 +168,7 @@ rank=2、condition≈23.07。热列接近零是因为合成热工况只有对称
 
 > 只换数据，不改架构。
 
-保持 manifest 字段，替换 CSV；synthetic=false；补 surface_id/coordinate_system/units；可选输出 66 项 Zernike；重新跑 /api/fea/sensitivity。
+保持 manifest 字段，替换 CSV；synthetic=false；补 surface_id/coordinate_system/units；66 项 Zernike 已输出；重新跑 /api/fea/sensitivity。
 
 Web 服务不直接跑 ANSYS；建议离线求解后上传结果包，避免 license/大文件/沙箱问题。
 
@@ -181,5 +181,5 @@ Web 服务不直接跑 ANSYS；建议离线求解后上传结果包，避免 lic
 - 当前 S 是环境变量差分，不是 M2 5-DOF 控制灵敏度；
 - 热工况 RMS 是占位值；
 - M3 矩形口径用圆口径近似；
-- 66 项、刚体位移分离、镜面 2 倍光程是下一阶段验证点；
+- 刚体位移分离、镜面 2 倍光程是下一阶段验证点；
 - 真实灵敏度必须用真实 FEA + Zemax 重新计算。

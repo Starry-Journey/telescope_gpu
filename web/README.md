@@ -45,10 +45,10 @@ python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
 
 ## 旧版
 
-统一使用 FastAPI：
+`web/serve.py` 是标准库只读 dashboard，仍可用：
 
 ```bash
-python3 -m uvicorn web.api.main:app --port 8000
+python3 web/serve.py --port 8000
 ```
 
 ## 边界

@@ -51,17 +51,13 @@ from web.fits_pipeline_service import run_fits_pipeline
 from web.pd_service import invert_psf
 from web import sensitivity_matrix_service as sm
 from products.sensitivity import service as sens
+from products.zemax.zmx_parser import parse_zmx_bytes
 
 ROOT = Path(__file__).resolve().parents[2]
 UI = Path(__file__).resolve().parents[1] / "ui"
 RESULTS = ROOT / "results" / "ccd_pipeline"
 CKPT = ROOT / "ml" / "runs" / "cnn.pt"
 
-# ---------------------------------------------------------------------------
-# App composition
-# - FastAPI serves both the JSON API and the React single-page UI.
-# - Heavy optional dependencies (torch/nlopt) are imported by service modules.
-# ---------------------------------------------------------------------------
 app = FastAPI(title="CCD scientific mini-app", version="1.0")
 if UI.exists():
     app.mount("/ui", StaticFiles(directory=str(UI), html=True), name="ui")
@@ -85,9 +81,6 @@ def _load_model():
     return _model
 
 
-# ---------------------------------------------------------------------------
-# Request schemas (Pydantic): one schema per product/endpoint.
-# ---------------------------------------------------------------------------
 class SimRequest(BaseModel):
     c4: float = 0.6
     c8: float = -0.2
@@ -140,6 +133,20 @@ class FitsUploadRequest(BaseModel):
     defocus: Optional[List[float]] = None
 
 
+class ZmxRequest(BaseModel):
+    name: str
+    data_b64: str
+
+
+class FeaSurfaceRequest(BaseModel):
+    x: List[float]
+    y: List[float]
+    z: List[float]
+    radius: float
+    obscuration: float = 0.0
+    label: str = "uploaded"
+
+
 class MatrixRequest(BaseModel):
     matrix: List[List[float]]
     target_names: Optional[List[str]] = None
@@ -156,10 +163,8 @@ class MatrixControlRequest(BaseModel):
     upper: Optional[List[float]] = None
 
 
-# --- Module 1: CCD/PSF ---------------------------------------------------
 @app.post("/api/ccd/pipeline")
 def ccd_pipeline(req: CcdPipelineRequest):
-    """Module 1: synthetic phase PSF -> realistic CCD -> calibrated PSF cutouts."""
     try:
         return JSONResponse(run_ccd_pipeline(
             c4=req.c4, c8=req.c8, c9=req.c9, noise=req.noise,
@@ -170,7 +175,6 @@ def ccd_pipeline(req: CcdPipelineRequest):
 
 @app.post("/api/ccd/upload")
 def ccd_upload(req: FitsUploadRequest):
-    """Module 1: real FITS (SDSS/HST) -> background-subtracted PSF cutouts."""
     try:
         return JSONResponse(run_fits_pipeline(
             [f.model_dump() if hasattr(f, "model_dump") else f.dict() for f in req.files],
@@ -179,10 +183,8 @@ def ccd_upload(req: FitsUploadRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# --- Module 2: PD inversion ------------------------------------------------
 @app.post("/api/pd/invert")
 def pd_invert(req: PdRequest):
-    """Module 2: multi-frame PSF -> parallel BOBYQA -> Z4/Z8/Z9."""
     try:
         return JSONResponse(invert_psf(req.psf, req.defocus, req.truth,
                                        maxeval=req.maxeval, n_starts=req.n_starts))
@@ -190,10 +192,8 @@ def pd_invert(req: PdRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# --- Module 3C: arbitrary S/control ---------------------------------------
 @app.post("/api/sensitivity/custom")
 def sensitivity_custom(req: MatrixRequest):
-    """Module 3: arbitrary S -> SVD rank/condition/nullspace."""
     try:
         return JSONResponse(sm.analyze(req.matrix, req.target_names,
                                        req.control_names, req.units))
@@ -203,7 +203,6 @@ def sensitivity_custom(req: MatrixRequest):
 
 @app.post("/api/control/custom")
 def control_custom(req: MatrixControlRequest):
-    """Module 3: arbitrary S + target -> minimum-norm control u."""
     try:
         return JSONResponse(sm.control(req.matrix, req.target, req.lam,
                                        req.use_bounds, req.lower, req.upper))
@@ -211,17 +210,14 @@ def control_custom(req: MatrixControlRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# --- Module 3C: M2 5-DOF proxy --------------------------------------------
 @app.get("/api/framework")
 def framework_meta():
-    """Module 3C metadata: M2 5-DOF proxy S target/control names."""
     """Metadata for the sensitivity/control panel."""
     return JSONResponse(fw.metadata())
 
 
 @app.post("/api/framework/sensitivity")
 def framework_sensitivity(req: FrameworkSensitivityRequest):
-    """Module 3C: finite-difference 3x5 proxy sensitivity."""
     try:
         return JSONResponse(fw.sensitivity(float(req.step)))
     except Exception as e:
@@ -230,7 +226,6 @@ def framework_sensitivity(req: FrameworkSensitivityRequest):
 
 @app.post("/api/framework/control")
 def framework_control(req: FrameworkControlRequest):
-    """Module 3C: solve control for the 3x5 proxy matrix."""
     try:
         return JSONResponse(fw.control(req.target, float(req.lam),
                                        bool(req.use_bounds), req.lower, req.upper))
@@ -238,10 +233,35 @@ def framework_control(req: FrameworkControlRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# --- Module 3B: FEA surface/Zernike/environmental S -----------------------
+@app.post("/api/zemax/inspect")
+def zemax_inspect(req: ZmxRequest):
+    """Parse a ZMX prescription; sensitivity itself needs ZOS-API/ray trace."""
+    try:
+        raw = base64.b64decode(req.data_b64)
+        model = parse_zmx_bytes(raw)
+        return JSONResponse({
+            "name": req.name,
+            "model": model,
+            "status": "parsed",
+            "next": "upload the ZOS-API sensitivity CSV or run the Windows bridge",
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/fea/upload")
+def fea_upload(req: FeaSurfaceRequest):
+    """Real FEA export (x,y,dz) -> 66-term Zernike + display grid."""
+    try:
+        return JSONResponse(sens.custom_surface(req.x, req.y, req.z,
+                                                req.radius, req.obscuration,
+                                                req.label))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/fea/cases")
 def fea_cases():
-    """Module 3B: list synthetic FEA cases and design anchors."""
     try:
         return JSONResponse(sens.list_cases())
     except Exception as e:
@@ -250,7 +270,6 @@ def fea_cases():
 
 @app.get("/api/fea/cases/{case_id}")
 def fea_case(case_id: str):
-    """Module 3B: one case -> surface map + Zernike fit."""
     try:
         return JSONResponse(sens.case_detail(case_id))
     except KeyError:
@@ -261,7 +280,6 @@ def fea_case(case_id: str):
 
 @app.get("/api/fea/sensitivity")
 def fea_sensitivity():
-    """Module 3B: gravity/thermal differential -> 3x2 environmental S."""
     try:
         return JSONResponse(sens.environment_sensitivity())
     except Exception as e:
@@ -270,7 +288,6 @@ def fea_sensitivity():
 
 @app.post("/api/ccd")
 def ccd(req: CcdRequest):
-    """Legacy quick CCD preview (kept for the appendix demo)."""
     """Generate one phosim-like CCD frame (Moffat + spikes + saturation + CRs)."""
     stars = max(10, min(int(req.stars), 100))
     with tempfile.TemporaryDirectory() as td:
@@ -300,16 +317,13 @@ def _png_data_url(frame: np.ndarray) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-# --- Health / appendix quick demo -----------------------------------------
 @app.get("/api/health")
 def health():
-    """Liveness/checkpoint status for the UI."""
     return {"ok": True, "model": CKPT.exists()}
 
 
 @app.post("/api/simulate")
 def simulate(req: SimRequest):
-    """Appendix: 5-frame PSF morphology simulation."""
     import torch
     cfg = ForwardConfig(n=64, noise_sigma=float(req.noise))
     coeff = torch.tensor([req.c4, req.c8, req.c9], dtype=torch.float32)
@@ -326,7 +340,6 @@ def simulate(req: SimRequest):
 
 @app.post("/api/invert")
 def invert(req: SimRequest):
-    """Appendix: CNN/BOBYQA quick inversion."""
     import torch
     truth = np.array([req.c4, req.c8, req.c9], dtype=float)
     cfg = ForwardConfig(n=64, noise_sigma=float(req.noise))
@@ -370,7 +383,6 @@ def invert(req: SimRequest):
 
 @app.get("/api/metrics")
 def metrics():
-    """Optional pipeline metrics if results/ccd_pipeline exists."""
     p = RESULTS / "metrics.json"
     if not p.exists():
         raise HTTPException(404, "run pipeline first")
@@ -379,7 +391,6 @@ def metrics():
 
 @app.get("/api/figures")
 def figures():
-    """Optional diagnostic figure list."""
     if not RESULTS.exists():
         return []
     return sorted(p.name for p in RESULTS.glob("fig_*.png"))
@@ -387,7 +398,6 @@ def figures():
 
 @app.get("/")
 def index():
-    """Serve the single-page UI."""
     p = UI / "index.html"
     if not p.exists():
         return JSONResponse({"error": "ui missing"}, status_code=404)

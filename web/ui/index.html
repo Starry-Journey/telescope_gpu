@@ -100,7 +100,6 @@
     <div id="root"></div>
   </section>
 </main>
-<!-- Stage 3A: M2 5-DOF proxy sensitivity -> control -->
 <section class="fw-section">
   <div class="panel">
     <h2>③A M2 5-DOF 代理灵敏度 → 控制量</h2>
@@ -111,7 +110,6 @@
     <div id="framework-root"></div>
   </div>
 </section>
-<!-- Stage 3B: FEA surface -> Zernike -> environmental S -->
 <section class="fw-section">
   <div class="panel">
     <h2>③B FEA 案例：镜面位移 → Zernike → 环境灵敏度</h2>
@@ -122,7 +120,6 @@
     <div id="fea-root"></div>
   </div>
 </section>
-<!-- Stage 1/2: CCD acquisition -> PSF -> PD inversion -->
 <section class="fw-section">
   <div class="panel">
     <h2>① CCD 数据管线 + 真实感仿真 + PSF</h2>
@@ -133,7 +130,6 @@
     <div id="product-root"></div>
   </div>
 </section>
-<!-- Stage 3C: custom S -> control -->
 <section class="fw-section">
   <div class="panel">
     <h2>③C 自定义灵敏度矩阵 → 控制量</h2>
@@ -290,6 +286,8 @@ function FrameworkApp() {
   const [ctrl, setCtrl] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [zmx, setZmx] = useState(null);
+  const [zmxFile, setZmxFile] = useState(null);
 
   async function fwPost(path, body) {
     const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
@@ -346,6 +344,20 @@ function FrameworkApp() {
     catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
+  async function inspectZmx() {
+    if (!zmxFile) return;
+    setBusy(true); setErr("");
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
+        r.onerror = reject;
+        r.readAsDataURL(zmxFile);
+      });
+      setZmx(await fwPost("/api/zemax/inspect", {name:zmxFile.name, data_b64:b64}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
   async function solveC() {
     setBusy(true); setErr("");
     try { setCtrl(await fwPost("/api/framework/control", {target:target.map(Number), lam:Number(lam), use_bounds:true})); }
@@ -380,6 +392,10 @@ function FrameworkApp() {
                onChange={e => setLam(e.target.value)} />
         <button className="primary" onClick={buildS} disabled={busy}>重算灵敏度矩阵 S</button>
         <button className="secondary" onClick={solveC} disabled={busy}>求解控制量 u</button>
+        <label className="hint" style={{display:"block",marginTop:10}}>上传 .ZMX（仅解析；真实 S 需 ZOS-API）</label>
+        <input type="file" accept=".zmx,.ZMX" className="fea-select" onChange={e=>setZmxFile(e.target.files[0] || null)} />
+        <button className="ghost" onClick={inspectZmx} disabled={busy || !zmxFile}>解析 ZMX 结构</button>
+        {zmx ? <div className="fw-note">ZMX: {zmx.model.surfaces.length} 面，stop={zmx.model.stop}，ENPD={zmx.model.aperture_mm} mm；{zmx.next}</div> : null}
         <p className="fw-note">
           目标 z=[Z4,Z8,Z9]；控制 u=[m2_focus, m2_decenter_x, m2_decenter_y, m2_tilt_x, m2_tilt_y]。
           3×5 秩 3，零空间 2 维：目标可复现，但 u 不唯一；增大 λ 会偏向最小能量解。
@@ -428,12 +444,33 @@ function FeaApp() {
   const [sens, setSens] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [feaFile, setFeaFile] = useState(null);
+  const [feaRadius, setFeaRadius] = useState(1250);
+  const [feaObsc, setFeaObsc] = useState(0.28);
 
   async function loadCase(id) {
     setBusy(true); setErr("");
     try {
       const d = await (await fetch("/api/fea/cases/" + encodeURIComponent(id))).json();
       setDetail(d);
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function uploadFea() {
+    if (!feaFile) return;
+    setBusy(true); setErr("");
+    try {
+      const text = await feaFile.text();
+      const rows = text.trim().split(/\n+/).slice(1).map(line => line.split(/[,\s]+/).map(Number));
+      const x = rows.map(r => r[0]), y = rows.map(r => r[1]), z = rows.map(r => r[2]);
+      const r = await fetch("/api/fea/upload", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({x, y, z, radius:Number(feaRadius), obscuration:Number(feaObsc),
+                             label:feaFile.name.replace(/\.[^.]+$/, "")}),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setDetail(await r.json());
+      setCaseId("");
     } catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
@@ -513,6 +550,13 @@ function FeaApp() {
             <option key={c.id} value={c.id}>{c.surface} · {c.load_case}</option>
           ))}
         </select>
+        <label className="hint" style={{display:"block",marginTop:10}}>真实 FEA CSV：x_mm,y_mm,dz_nm</label>
+        <input className="fea-select" type="file" accept=".csv,.txt" onChange={e=>setFeaFile(e.target.files[0] || null)} />
+        <div className="numgrid" style={{marginTop:6}}>
+          <label>R mm<input type="number" value={feaRadius} onChange={e=>setFeaRadius(e.target.value)} /></label>
+          <label>遮拦<input type="number" step="0.01" value={feaObsc} onChange={e=>setFeaObsc(e.target.value)} /></label>
+        </div>
+        <button className="ghost" onClick={uploadFea} disabled={busy || !feaFile}>上传并拟合 66 项 Zernike</button>
         {detail ? (
           <div className="fw-note" style={{marginTop:12}}>
             <b>{detail.case.id}</b><br/>
@@ -551,7 +595,6 @@ function FeaApp() {
   );
 }
 
-// Stage 1/2 container: synthetic/real CCD -> PSF -> PD.
 function ProductApp() {
   const [ccd, setCcd] = useState(null);
   const [pd, setPd] = useState(null);
@@ -566,7 +609,6 @@ function ProductApp() {
     return await r.json();
   }
 
-  // Stage 1: generate a realistic CCD stack and extract PSF cutouts.
   async function runCcd() {
     setBusy(true); setErr(""); setPd(null);
     try {
@@ -575,7 +617,6 @@ function ProductApp() {
     } catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
-  // Stage 2: phase-diversity inversion on the PSF stack.
   async function runPd() {
     if (!ccd) return;
     setBusy(true); setErr("");
@@ -674,7 +715,6 @@ function ProductApp() {
   );
 }
 
-// Stage 3C: arbitrary sensitivity matrix + target -> control.
 function CustomApp() {
   const [text, setText] = useState("4.040,0.083,-0.083,0.976,-0.976\n0,-4.633,0,0,0\n0,0,-4.633,0,0");
   const [target, setTarget] = useState("0.23377,-0.09266,0.04633");
