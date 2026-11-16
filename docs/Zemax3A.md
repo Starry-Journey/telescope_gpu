@@ -103,3 +103,41 @@ python3 scripts/zemax_zos_worker.py --mock
 - ZMX 坐标断点/非序列/自由曲面可能超出解析器；
 - 真实 S 必须由 OpticStudio 或经过验证的光线追迹给出；
 - `--mock` 只能做队列测试，不能进报告/论文。
+
+
+## 6. rayoptics OPD 3×5 S（已生成，非 Zemax）
+
+`products/zemax/rayoptics_sensitivity.py` 已能从 ZMX 生成真实光线追迹的
+on-axis OPD Zernike，并有限差分 M2：
+
+- surface 4 = M2；
+- controls：`decenter_x/y [mm]`、`tilt_x/y [mrad]`、`focus [mm]`；
+- 500 nm，8×8 pupil grid；
+- 输出：`data/zemax/sensitivity.csv/json`。
+
+实测 S（waves/(mm or mrad)）：
+
+```text
+m2_decenter_x: Z8 = +1.956
+m2_decenter_y: Z9 = +1.954
+m2_tilt_x:     Z9 = -0.501
+m2_tilt_y:     Z8 = +0.500
+m2_focus:      Z4 = -0.987
+```
+
+端点：
+
+```text
+GET /api/zemax/sensitivity
+```
+
+**注意**：这是 rayoptics 的 OPD/有限差分，不是 OpticStudio 的 Zernike 分析；
+baseline OPD 仍很大（Z4≈30.6 waves），说明模型/参考球/采样需继续校准。
+不能把它标成“Zemax 真实 S”。
+
+## 7. 当前结论
+
+- ZMX 能读、能追迹、能生成 S；
+- S 的符号/量级可用于算法链验证；
+- 真实 Zemax 对照仍需学生版/学校 license；
+- `GET /api/zemax/sensitivity` 可直接给 ③C 做控制。

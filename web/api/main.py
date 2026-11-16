@@ -243,6 +243,16 @@ def framework_control(req: FrameworkControlRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/api/zemax/sensitivity")
+def zemax_sensitivity():
+    """Read the rayoptics 3x5 CSV/JSON; clearly not OpticStudio."""
+    import json
+    p = Path(__file__).resolve().parents[2] / "data" / "zemax" / "sensitivity.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="no sensitivity.json")
+    return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+
+
 @app.post("/api/zemax/jobs")
 def zemax_job_submit(req: ZmxRequest):
     try:

@@ -289,6 +289,7 @@ function FrameworkApp() {
   const [zmx, setZmx] = useState(null);
   const [zmxFile, setZmxFile] = useState(null);
   const [job, setJob] = useState(null);
+  const [rayS, setRayS] = useState(null);
 
   async function fwPost(path, body) {
     const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
@@ -373,6 +374,11 @@ function FrameworkApp() {
     } catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
+  async function loadRayS() {
+    try { setRayS(await (await fetch("/api/zemax/sensitivity")).json()); }
+    catch(e) { setErr(String(e)); }
+  }
+
   async function refreshJob() {
     if (!job) return;
     const jid = job.job_id || job.id;
@@ -418,6 +424,10 @@ function FrameworkApp() {
         <input type="file" accept=".zmx,.ZMX" className="fea-select" onChange={e=>setZmxFile(e.target.files[0] || null)} />
         <button className="ghost" onClick={inspectZmx} disabled={busy || !zmxFile}>解析 ZMX 结构</button>
         <button className="secondary" onClick={submitZmxJob} disabled={busy || !zmxFile}>提交 3A 队列</button>
+        <button className="ghost" onClick={loadRayS}>读取 rayoptics S</button>
+        {rayS ? <div className="fw-note">rayoptics OPD (not Zemax), baseline Z4={rayS.baseline_waves.Z4.toFixed(3)} waves;
+          {rayS.rows.map(r => <div key={r.control}>{r.control}: Z4={r.Z4.toExponential(2)}, Z8={r.Z8.toExponential(2)}, Z9={r.Z9.toExponential(2)}</div>)}
+        </div> : null}
         {zmx ? <div className="fw-note">ZMX: {zmx.model.surfaces.length} 面，stop={zmx.model.stop}，ENPD={zmx.model.aperture_mm} mm；{zmx.next}</div> : null}
         {job ? <div className="fw-note">job {job.job_id || job.id}: {job.status} <button className="ghost" style={{width:"auto",padding:"2px 8px",marginTop:4}} onClick={refreshJob}>刷新</button></div> : null}
         <p className="fw-note">
