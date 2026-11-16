@@ -197,6 +197,38 @@
         "5": 0.3,
         "6": 0.2
       }
+    },
+    {
+      "id": "M1_calculix_0deg",
+      "surface": "M1",
+      "load_case": "CalculiX 2.23 simplified, gravity 0 deg",
+      "file": "calculix/m1_0deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 30.73,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "assumption": "simplified plate, fixed 36 bottom + 24 side supports; not design-spec",
+      "synthetic": false,
+      "model": "calculix-simplified"
+    },
+    {
+      "id": "M1_calculix_90deg",
+      "surface": "M1",
+      "load_case": "CalculiX 2.23 simplified, gravity 90 deg",
+      "file": "calculix/m1_90deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 79.43,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "assumption": "simplified plate, fixed 36 bottom + 24 side supports; not design-spec",
+      "synthetic": false,
+      "model": "calculix-simplified"
     }
   ]
 }

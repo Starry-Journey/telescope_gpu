@@ -1,0 +1,5 @@
+# Optional analysis tools (not required by the Web runtime).
+# Windows Python 3.13 was used for rayoptics/POPPY/HCIPy tests.
+rayoptics>=0.9.10
+poppy>=1.1.2
+hcipy>=0.7.1
