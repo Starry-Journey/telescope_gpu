@@ -11,6 +11,9 @@ POST /api/invert     {c4,c8,c9,noise} -> truth / CNN init / BOBYQA refined
 GET  /api/framework  -> parameter/control metadata + default target
 POST /api/framework/sensitivity -> 3x5 S, rank/condition/nullspace
 POST /api/framework/control     -> minimum-norm control u + residual
+GET  /api/fea/cases             -> synthetic FEA cases + design anchors
+GET  /api/fea/cases/{id}        -> surface map + Zernike fit + targets
+GET  /api/fea/sensitivity       -> environmental S (gravity/thermal)
 GET  /api/metrics    -> pipeline metrics (if available)
 GET  /api/figures    -> list of pipeline figures
 """
@@ -38,6 +41,7 @@ from ml.traditional import forward_stack_numpy
 from ml.two_stage import bobyqa
 from pipeline.realistic import RealisticConfig, preview_frame, simulate_realistic
 from web import framework_service as fw
+from products.sensitivity import service as sens
 
 ROOT = Path(__file__).resolve().parents[2]
 UI = Path(__file__).resolve().parents[1] / "ui"
@@ -112,6 +116,32 @@ def framework_control(req: FrameworkControlRequest):
                                        bool(req.use_bounds), req.lower, req.upper))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/fea/cases")
+def fea_cases():
+    try:
+        return JSONResponse(sens.list_cases())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fea/cases/{case_id}")
+def fea_case(case_id: str):
+    try:
+        return JSONResponse(sens.case_detail(case_id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown FEA case {case_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fea/sensitivity")
+def fea_sensitivity():
+    try:
+        return JSONResponse(sens.environment_sensitivity())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/ccd")

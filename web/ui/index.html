@@ -48,6 +48,11 @@
   .fw-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
   .fw-table th,.fw-table td{border-bottom:1px solid var(--line);padding:5px 4px;text-align:right}
   .fw-table th:first-child,.fw-table td:first-child{text-align:left}
+  .fea-grid{display:grid;grid-template-columns:300px 1fr;gap:18px}
+  @media(max-width:980px){.fea-grid{grid-template-columns:1fr}}
+  .fea-chart{width:100%;height:280px}
+  .fea-select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px;margin-top:6px}
+  .fea-warn{background:#fff6e5;color:#7a5b1e;border-radius:8px;padding:9px;font-size:12px;line-height:1.55;margin-top:10px}
 </style>
 </head>
 <body>
@@ -88,6 +93,16 @@
       <span class="tag">注意</span>3×5 秩 3、零空间 2 维：目标可复现，控制量不唯一。
     </p>
     <div id="framework-root"></div>
+  </div>
+</section>
+<section class="fw-section">
+  <div class="panel">
+    <h2>④ FEA 案例：镜面位移 → Zernike → 环境灵敏度</h2>
+    <p class="hint" style="margin:0 0 14px">
+      <span class="tag">合成参考</span>由两版设计资料中的口径、支撑、RMS 锚点生成，<b>不是已求解的 2.5 m FEA 模型</b>。
+      真实 FEA 导出后替换 <code>data/fea_cases/*.csv</code>，接口不变。
+    </p>
+    <div id="fea-root"></div>
   </div>
 </section>
 <script type="text/babel">
@@ -356,8 +371,128 @@ function FrameworkApp() {
   );
 }
 
+function FeaApp() {
+  const [meta, setMeta] = useState(null);
+  const [caseId, setCaseId] = useState("");
+  const [detail, setDetail] = useState(null);
+  const [sens, setSens] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function loadCase(id) {
+    setBusy(true); setErr("");
+    try {
+      const d = await (await fetch("/api/fea/cases/" + encodeURIComponent(id))).json();
+      setDetail(d);
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const m = await (await fetch("/api/fea/cases")).json();
+        setMeta(m);
+        const first = m.cases && m.cases.length ? m.cases[0].id : "";
+        setCaseId(first);
+        if (first) await loadCase(first);
+        setSens(await (await fetch("/api/fea/sensitivity")).json());
+      } catch(e) { setErr(String(e)); }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!detail) return;
+    const el = document.getElementById("feaMap");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("feaMap", [{
+      z:detail.grid.z, x:detail.grid.x, y:detail.grid.y, type:"heatmap",
+      colorscale:"RdBu", zmid:0, colorbar:{title:"nm",thickness:12},
+    }], {
+      margin:{l:44,r:10,t:26,b:34}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)",
+      title:{text:`${detail.case.surface}  ${detail.case.load_case}`,font:{size:12}},
+    }, {displayModeBar:false});
+  }, [detail]);
+
+  useEffect(() => {
+    if (!detail) return;
+    const el = document.getElementById("feaZ");
+    if (!el || typeof Plotly === "undefined") return;
+    const labels = detail.fit.terms.map(t => t.label);
+    Plotly.react("feaZ", [{
+      type:"bar", x:labels, y:detail.fit.coefficients_nm,
+      marker:{color:"#2e5e8c"}, name:"Zernike",
+    }], {
+      margin:{l:44,r:10,t:26,b:28}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"nm"},
+      title:{text:`Zernike fit: RMS ${Number(detail.fit.rms_nm).toFixed(2)} nm, residual ${Number(detail.fit.residual_rms_nm).toExponential(1)} nm`,font:{size:11}},
+    }, {displayModeBar:false});
+  }, [detail]);
+
+  useEffect(() => {
+    if (!sens) return;
+    const el = document.getElementById("feaS");
+    if (!el || typeof Plotly === "undefined") return;
+    const text = sens.matrix.map(row => row.map(v => Number(v).toExponential(2)));
+    Plotly.react("feaS", [{
+      z:sens.matrix, x:sens.controls, y:sens.targets, type:"heatmap",
+      colorscale:"RdBu", zmid:0, text, texttemplate:"%{text}",
+      colorbar:{title:"waves/unit",thickness:12},
+    }], {
+      margin:{l:40,r:10,t:26,b:34}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)",
+      title:{text:`environmental S ${sens.matrix.length}×${sens.matrix[0].length} rank=${sens.rank} cond=${Number(sens.condition).toFixed(2)}`,font:{size:11}},
+    }, {displayModeBar:false});
+  }, [sens]);
+
+  const onPick = async (e) => {
+    const id = e.target.value;
+    setCaseId(id);
+    await loadCase(id);
+  };
+  const targets = detail ? detail.fit.targets_nm : {};
+
+  return (
+    <div className="fea-grid">
+      <div>
+        <label className="hint">FEA 工况</label>
+        <select className="fea-select" value={caseId} onChange={onPick}>
+          {(meta ? meta.cases : []).map(c => (
+            <option key={c.id} value={c.id}>{c.surface} · {c.load_case}</option>
+          ))}
+        </select>
+        {detail ? (
+          <div className="fw-note" style={{marginTop:12}}>
+            <b>{detail.case.id}</b><br/>
+            半径 {detail.case.aperture_radius_mm} mm · 目标 RMS {detail.case.target_rms_nm} nm<br/>
+            实际 map RMS {Number(detail.fit.rms_nm).toFixed(2)} nm<br/>
+            来源：{detail.case.source_page}<br/>
+            合成参考：{detail.case.synthetic ? "是" : "否"}
+          </div>
+        ) : null}
+        {meta && meta.warning ? <div className="fea-warn">{meta.warning}</div> : null}
+        {busy ? <div className="hint">加载工况...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        <div className="cards">
+          <div className="card"><div className="k">Z4 / Z8 / Z9</div><div className="v">{(targets.Z4 || 0).toFixed(2)} / {(targets.Z8 || 0).toFixed(2)} / {(targets.Z9 || 0).toFixed(2)}</div></div>
+          <div className="card"><div className="k">拟合残差 RMS</div><div className="v">{detail ? Number(detail.fit.residual_rms_nm).toExponential(1) : "—"}</div></div>
+          <div className="card"><div className="k">环境 S</div><div className="v">{sens ? `${sens.matrix.length}×${sens.matrix[0].length}` : "—"}</div></div>
+          <div className="card"><div className="k">S 条件数</div><div className="v">{sens ? Number(sens.condition).toFixed(2) : "—"}</div></div>
+        </div>
+        <div id="feaMap" className="fea-chart"></div>
+        <div id="feaZ" className="fea-chart"></div>
+        <div id="feaS" className="fea-chart"></div>
+        {sens ? <div className="fw-note">环境灵敏度来自 M1 重力 0/90° 与热 ±20 K 工况的 Zernike 差分；不是 M2 5-DOF 的 Zemax 灵敏度。</div> : null}
+      </div>
+    </div>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 ReactDOM.createRoot(document.getElementById("framework-root")).render(<FrameworkApp/>);
+ReactDOM.createRoot(document.getElementById("fea-root")).render(<FeaApp/>);
 </script>
 </body>
 </html>

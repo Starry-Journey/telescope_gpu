@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "warning": "Synthetic reference cases generated from design documents. They are NOT a solved FEA model. Replace CSVs with real FEA exports and keep the same manifest fields.",
+  "source_documents": [
+    "多终端通用望远镜详细设计方案20240408-修订.pdf",
+    "紫金山天文台多终端通用望远镜建设方案20231012.docx"
+  ],
+  "design": {
+    "M1": {
+      "aperture_mm": 2500.0,
+      "outer_diameter_mm": 2560.0,
+      "central_hole_mm": 700.0,
+      "edge_thickness_mm": 260.0,
+      "material": "Zerodur (微晶玻璃)",
+      "supports": "36 bottom (6-12-12-6) + 24 side whiffletree",
+      "surface_rms_spec_nm": 6.3
+    },
+    "M2": {
+      "aperture_mm": 500.0,
+      "material": "Zerodur",
+      "supports": "6-point suspended whiffletree",
+      "dof": "5-DOF adjustment (x/y translation, x/y tilt, focus)"
+    },
+    "M3": {
+      "aperture_mm": 500.0,
+      "effective_mm": [
+        500.0,
+        250.0
+      ],
+      "material": "Zerodur",
+      "supports": "6-point bottom whiffletree + center Invar",
+      "surface_rms_spec_nm": 3.2
+    }
+  },
+  "cases": [
+    {
+      "id": "M1_gravity_0deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis horizontal",
+      "file": "M1_gravity_0deg.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 6.4873,
+      "actual_rms_nm": 6.447399130446301,
+      "n_points": 18036,
+      "source_page": "p.113-114",
+      "assumption": "",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.55,
+        "6": 0.35,
+        "7": 0.25,
+        "8": 0.25
+      }
+    },
+    {
+      "id": "M1_gravity_90deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis vertical",
+      "file": "M1_gravity_90deg.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 23.199,
+      "actual_rms_nm": 23.03899229009832,
+      "n_points": 18036,
+      "source_page": "p.113-114",
+      "assumption": "",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.4,
+        "6": 0.4,
+        "9": 0.2,
+        "10": 0.2
+      }
+    },
+    {
+      "id": "M1_thermal_plus20K",
+      "surface": "M1",
+      "load_case": "thermal +20 K (synthetic)",
+      "file": "M1_thermal_plus20K.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 8.0,
+      "actual_rms_nm": 7.920315562702639,
+      "n_points": 18036,
+      "source_page": "p.137",
+      "assumption": "RMS is a placeholder until FEA thermal case is supplied",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.15,
+        "6": 0.1
+      }
+    },
+    {
+      "id": "M1_thermal_minus20K",
+      "surface": "M1",
+      "load_case": "thermal -20 K (synthetic)",
+      "file": "M1_thermal_minus20K.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 8.0,
+      "actual_rms_nm": 7.920315562702638,
+      "n_points": 18036,
+      "source_page": "p.137",
+      "assumption": "RMS is a placeholder until FEA thermal case is supplied",
+      "synthetic": true,
+      "modes_nm": {
+        "4": -1.0,
+        "5": 0.15,
+        "6": -0.1
+      }
+    },
+    {
+      "id": "M2_gravity_0deg",
+      "surface": "M2",
+      "load_case": "gravity: mirror horizontal (synthetic)",
+      "file": "M2_gravity_0deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 4.6,
+      "actual_rms_nm": 4.599543351736783,
+      "n_points": 797,
+      "source_page": "p.124",
+      "assumption": "aperture 500 mm is an assumption",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.4,
+        "6": 0.3
+      }
+    },
+    {
+      "id": "M2_gravity_90deg",
+      "surface": "M2",
+      "load_case": "gravity: mirror vertical (synthetic)",
+      "file": "M2_gravity_90deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 4.7,
+      "actual_rms_nm": 4.699934309749498,
+      "n_points": 797,
+      "source_page": "p.124",
+      "assumption": "aperture 500 mm is an assumption",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 0.4,
+        "5": 1.0,
+        "6": 0.5
+      }
+    },
+    {
+      "id": "M3_gravity_45deg",
+      "surface": "M3",
+      "load_case": "gravity: M3 at 45 deg (synthetic)",
+      "file": "M3_gravity_45deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 4.23,
+      "actual_rms_nm": 4.229608678054707,
+      "n_points": 797,
+      "source_page": "p.131",
+      "assumption": "rectangular 500x250 approximated by a 500 mm circular aperture",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.5,
+        "6": 0.3
+      }
+    },
+    {
+      "id": "M3_gravity_90deg",
+      "surface": "M3",
+      "load_case": "gravity: M3 vertical (synthetic)",
+      "file": "M3_gravity_90deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 1.726,
+      "actual_rms_nm": 1.7258427584195357,
+      "n_points": 797,
+      "source_page": "p.131",
+      "assumption": "rectangular 500x250 approximated by a 500 mm circular aperture",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 0.6,
+        "5": 0.3,
+        "6": 0.2
+      }
+    }
+  ]
+}
