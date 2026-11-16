@@ -1,6 +1,7 @@
 # Zemax 3A：ZMX 解析与 ZOS-API 灵敏度
 
-> 代码：`products/zemax/zmx_parser.py`、`web/job_queue.py`、`scripts/zemax_zos_worker.py`
+> 代码：`products/zemax/zmx_parser.py`、`products/zemax/zos_bridge.py`、
+> `web/job_queue.py`、`scripts/zemax_zos_worker.py`
 > 接口：`POST /api/zemax/inspect`、`POST /api/zemax/jobs`、`GET /api/jobs/{id}`
 
 ## 1. 当前状态
@@ -12,7 +13,8 @@
 - 返回面数、stop、口径、波长、面型；
 - 前端 ③A 可上传 `.ZMX` 查看结构；
 - **SQLite job queue**：提交/claim/complete/fail；
-- Windows worker 脚本 + `--mock` 队列测试。
+- Windows worker + `--mock` 队列测试；
+- 外部 ZOS 批处理命令契约（`TEL_ZOS_BATCH_CMD`）。
 
 实测你给的 `2.5m主系统.ZMX`：
 
@@ -69,7 +71,25 @@ POST /api/jobs/{id}/complete {result}   -> worker 完成
 
 存储：`results/jobs.sqlite3`（可删，自动重建）。
 
-### 3.1 队列测试（Linux，不需要 Zemax）
+## 4. Windows 外部批处理契约
+
+`products/zemax/zos_bridge.py` 不内置专有 API，而是调用：
+
+```text
+TEL_ZOS_BATCH_CMD <model.zmx> <perturb.yaml> <out.csv>
+```
+
+在 Windows worker 上设置：
+
+```bat
+set TEL_ZOS_BATCH_CMD=python C:\zos\run_zos_batch.py
+python scripts\zemax_zos_worker.py --api http://<linux-host>:8000
+```
+
+`run_zos_batch.py` 用 ZOS-API 打开 ZMX、按 `perturb.yaml` 施加 M2 5-DOF、
+导出 3×5 CSV。Linux 侧只负责队列/校验/UI，不接触 OpticStudio license。
+
+### 4.1 队列测试（Linux，不需要 Zemax）
 
 ```bash
 python3 scripts/zemax_zos_worker.py --mock
@@ -77,16 +97,7 @@ python3 scripts/zemax_zos_worker.py --mock
 
 返回明确标 `mock: true` 的 3×5 占位 S，只用于验证 Web/队列。
 
-### 3.2 真实 worker（Windows）
-
-```bat
-python scripts\zemax_zos_worker.py --api http://<linux-host>:8000
-```
-
-`products/zemax/zos_bridge.py` 在 Windows 上接 ZOS-API；未配置时
-明确抛错，不返回假值。
-
-## 4. 边界
+## 5. 边界
 
 - 解析 ≠ 追迹：当前只给结构摘要，不给 S；
 - ZMX 坐标断点/非序列/自由曲面可能超出解析器；
