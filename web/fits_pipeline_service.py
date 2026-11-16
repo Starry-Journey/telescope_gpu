@@ -20,6 +20,7 @@ from web.ccd_pipeline_service import _png, _clean_cutout
 
 
 def _load_fits_b64(name: str, data_b64: str) -> np.ndarray:
+    """Decode one base64 FITS file; 3-D cubes use their first plane."""
     raw = base64.b64decode(data_b64)
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / (name or "frame.fits")
@@ -40,6 +41,7 @@ def _load_fits_b64(name: str, data_b64: str) -> np.ndarray:
 
 
 def _detect_stars(image: np.ndarray, max_stars: int = 5, size: int = 64):
+    """Detect isolated peaks above 5 sigma; returns (peak,x,y) candidates."""
     mean, med, std = sigma_clipped_stats(image, sigma=3.0)
     std = max(float(std), 1e-6)
     peaks = (image == maximum_filter(image, size=5)) & (image > med + 5 * std)
@@ -59,6 +61,7 @@ def _detect_stars(image: np.ndarray, max_stars: int = 5, size: int = 64):
 
 
 def run_fits_pipeline(files: List[dict], defocus: Optional[List[float]] = None) -> dict:
+    """Real FITS -> background-subtracted 64x64 PSF cutouts (module 1)."""
     if not files:
         raise ValueError("no FITS files")
     frames, psf, psf_png = [], [], []

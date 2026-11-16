@@ -45,10 +45,11 @@ python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
 python3 -m ml.compare --samples 4 --starts 16 --max-nfev 100
 
 # 可视化
-python3 web/serve.py --port 8000
+python3 -m uvicorn web.api.main:app --port 8000
 ```
 
-文档索引：`docs/tutorials/README.md`；4–6 周路线：`docs/tutorials/00_工程化MVP路线.md`；
+目录/数据流：`docs/目录与模块架构.md`；文档索引：`docs/模块化文档索引.md`；
+4–6 周路线：`docs/tutorials/00_工程化MVP路线.md`；
 数值库教程：`docs/tutorials/01_C++数值库.md`；可微前向/CNN/对比：`02`–`04`。
 
 > 所有 ML/管线数字都是**仿真**结果，不是 2.5 m 望远镜实测；边界写在每篇 tutorial 末尾。
@@ -84,13 +85,14 @@ apps/
 tests/                 自建轻量测试框架 + CTest
 configs/default.conf   默认参数
 scripts/               可视化与灵敏度矩阵示意图
-baseline/              v1 结果与图片，仅作对照
-pipeline/              CCD 星场/运动目标管线（Python）
-configs/pipeline.json  CCD 管线配置
+pipeline/              CCD 星场/定标/检测/天体测量（Python）
+products/sensitivity/  FEA 案例/面形→Zernike/环境 S
+framework/             通用反演/控制 C++ 框架
 numerics/              C++ 数值库（Eigen/GTest/Benchmark/pybind11）
 ml/                    PyTorch 可微前向 + CNN + 传统对比
-web/                   只读可视化 demo
-docs/                  代码说明（本版新增）
+web/                   FastAPI + React 三模块界面
+data/fea_cases/        合成 FEA 参考工况
+docs/                  架构、模块、教程、技术报告
 ```
 
 ### CCD 星场/运动目标管线（扩展）

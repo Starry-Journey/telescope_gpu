@@ -5,6 +5,15 @@
 #include <stdexcept>
 #include <string>
 
+// ---------------------------------------------------------------------------
+// Numerical core implementation
+//   solve_linear : partial-pivot LU
+//   least_squares: Householder QR / SVD fallback
+//   fft          : radix-2 Cooley-Tukey
+//   solve_ode_*  : fixed-step RK4
+// All public functions validate shape/finiteness before touching Eigen.
+// ---------------------------------------------------------------------------
+
 namespace telescope {
 namespace numerics {
 namespace {

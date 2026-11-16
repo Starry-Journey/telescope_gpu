@@ -25,6 +25,7 @@ def _manifest() -> dict:
 
 
 def list_cases() -> dict:
+    """List synthetic/real FEA cases without loading their grids."""
     m = _manifest()
     return {
         "synthetic": m.get("synthetic", True),
@@ -35,6 +36,7 @@ def list_cases() -> dict:
 
 
 def _read_case(case_id: str) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
+    """Read one case CSV and its manifest metadata."""
     m = _manifest()
     info = next((c for c in m["cases"] if c["id"] == case_id), None)
     if info is None:
@@ -86,6 +88,7 @@ def case_detail(case_id: str) -> dict:
 
 
 def _target_vector(case_id: str) -> np.ndarray:
+    """Return [Z4,Z8,Z9] in waves from the 15-term fit."""
     """Return [Z4, Z8, Z9] in waves from the 15-term fit."""
     detail = case_detail(case_id)
     t = detail["fit"]["targets_nm"]
@@ -93,6 +96,7 @@ def _target_vector(case_id: str) -> np.ndarray:
 
 
 def environment_sensitivity() -> dict:
+    """Gravity/thermal differential -> 3x2 environmental S (parallel fits)."""
     """S from documented gravity and thermal cases (3x2)."""
     ids = ["M1_gravity_0deg", "M1_gravity_90deg",
            "M1_thermal_plus20K", "M1_thermal_minus20K"]

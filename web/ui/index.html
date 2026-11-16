@@ -100,6 +100,7 @@
     <div id="root"></div>
   </section>
 </main>
+<!-- Stage 3A: M2 5-DOF proxy sensitivity -> control -->
 <section class="fw-section">
   <div class="panel">
     <h2>③A M2 5-DOF 代理灵敏度 → 控制量</h2>
@@ -110,6 +111,7 @@
     <div id="framework-root"></div>
   </div>
 </section>
+<!-- Stage 3B: FEA surface -> Zernike -> environmental S -->
 <section class="fw-section">
   <div class="panel">
     <h2>③B FEA 案例：镜面位移 → Zernike → 环境灵敏度</h2>
@@ -120,6 +122,7 @@
     <div id="fea-root"></div>
   </div>
 </section>
+<!-- Stage 1/2: CCD acquisition -> PSF -> PD inversion -->
 <section class="fw-section">
   <div class="panel">
     <h2>① CCD 数据管线 + 真实感仿真 + PSF</h2>
@@ -130,6 +133,7 @@
     <div id="product-root"></div>
   </div>
 </section>
+<!-- Stage 3C: custom S -> control -->
 <section class="fw-section">
   <div class="panel">
     <h2>③C 自定义灵敏度矩阵 → 控制量</h2>
@@ -547,6 +551,7 @@ function FeaApp() {
   );
 }
 
+// Stage 1/2 container: synthetic/real CCD -> PSF -> PD.
 function ProductApp() {
   const [ccd, setCcd] = useState(null);
   const [pd, setPd] = useState(null);
@@ -561,6 +566,7 @@ function ProductApp() {
     return await r.json();
   }
 
+  // Stage 1: generate a realistic CCD stack and extract PSF cutouts.
   async function runCcd() {
     setBusy(true); setErr(""); setPd(null);
     try {
@@ -569,6 +575,7 @@ function ProductApp() {
     } catch(e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
+  // Stage 2: phase-diversity inversion on the PSF stack.
   async function runPd() {
     if (!ccd) return;
     setBusy(true); setErr("");
@@ -667,6 +674,7 @@ function ProductApp() {
   );
 }
 
+// Stage 3C: arbitrary sensitivity matrix + target -> control.
 function CustomApp() {
   const [text, setText] = useState("4.040,0.083,-0.083,0.976,-0.976\n0,-4.633,0,0,0\n0,0,-4.633,0,0");
   const [target, setTarget] = useState("0.23377,-0.09266,0.04633");

@@ -11,6 +11,7 @@ import numpy as np
 
 
 def _as_matrix(matrix: Sequence[Sequence[float]]) -> np.ndarray:
+    """Validate a non-empty finite 2-D sensitivity matrix."""
     S = np.asarray(matrix, dtype=float)
     if S.ndim != 2 or S.size == 0:
         raise ValueError("matrix must be non-empty 2-D")

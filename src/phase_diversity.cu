@@ -14,6 +14,15 @@
 #include "telescope/fits_io.hpp"
 #include "telescope/zernike.hpp"
 
+// ---------------------------------------------------------------------------
+// Phase-diversity inversion pipeline
+//   1) preprocess_frames: per-frame bias subtraction + energy normalization
+//   2) evaluate(): image-domain SSE against the 5-frame model
+//   3) solve(): 40 random starts + coordinate descent, top-3 BOBYQA
+// The model/data normalization and the pseudo-solution diagnostic are
+// deliberate: they were added after observing a sign/bias failure mode.
+// ---------------------------------------------------------------------------
+
 namespace telescope {
 
 // 反演实际拟合的槽位：2/6/7（工程编号 Z4/Z8/Z9）。
