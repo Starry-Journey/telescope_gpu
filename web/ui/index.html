@@ -269,6 +269,7 @@ function FrameworkApp() {
     }], {
       margin:{l:42,r:10,t:24,b:38}, paper_bgcolor:"rgba(0,0,0,0)",
       plot_bgcolor:"rgba(0,0,0,0)", title:{text:`S ${d.values.length}×${d.values[0].length}  rank=${d.rank}  nullspace=${d.nullspace}`,font:{size:12}},
+      yaxis:{autorange:"reversed"},
     }, {displayModeBar:false});
   }
 
@@ -282,6 +283,7 @@ function FrameworkApp() {
     }], {
       margin:{l:42,r:10,t:24,b:38}, paper_bgcolor:"rgba(0,0,0,0)",
       plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"control (mm / mrad)"},
+      xaxis:{tickangle:-25},
       title:{text:`control  rank=${d.rank}  cond=${Number(d.condition).toFixed(3)}`,font:{size:12}},
     }, {displayModeBar:false});
   }
@@ -340,8 +342,9 @@ function FrameworkApp() {
         <button className="primary" onClick={buildS} disabled={busy}>重算灵敏度矩阵 S</button>
         <button className="secondary" onClick={solveC} disabled={busy}>求解控制量 u</button>
         <p className="fw-note">
-          目标 z=[Z4,Z8,Z9]；控制 u=[uz,ux,uy,uα,uβ]。3×5 秩 3，零空间 2 维：
-          目标可复现，但 u 不唯一；增大 λ 会偏向最小能量解。
+          目标 z=[Z4,Z8,Z9]；控制 u=[m2_focus, m2_decenter_x, m2_decenter_y, m2_tilt_x, m2_tilt_y]。
+          3×5 秩 3，零空间 2 维：目标可复现，但 u 不唯一；增大 λ 会偏向最小能量解。
+          这是 M2 5-DOF 的线性代理，不是 Zemax 实测。
         </p>
         {busy ? <div className="hint">计算中...</div> : null}
         {err ? <div className="err">{err}</div> : null}
@@ -355,6 +358,14 @@ function FrameworkApp() {
         </div>
         <div id="fwSChart" className="fw-chart"></div>
         <div id="fwCtrlChart" className="fw-chart"></div>
+        {meta && meta.control_meta ? (
+          <table className="fw-table">
+            <thead><tr><th>控制量</th><th>物理含义</th><th>单位</th><th>主要目标</th></tr></thead>
+            <tbody>{meta.control_meta.map(c => (
+              <tr key={c.name}><td>{c.name}</td><td>{c.physical}</td><td>{c.unit}</td><td>{c.primary_target}</td></tr>
+            ))}</tbody>
+          </table>
+        ) : null}
         {ctrl ? (
           <table className="fw-table">
             <thead><tr><th>target</th><th>设定</th><th>S·u</th><th>残差</th></tr></thead>
@@ -425,6 +436,7 @@ function FeaApp() {
     }], {
       margin:{l:44,r:10,t:26,b:28}, paper_bgcolor:"rgba(0,0,0,0)",
       plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"nm"},
+      xaxis:{tickangle:-45},
       title:{text:`Zernike fit: RMS ${Number(detail.fit.rms_nm).toFixed(2)} nm, residual ${Number(detail.fit.residual_rms_nm).toExponential(1)} nm`,font:{size:11}},
     }, {displayModeBar:false});
   }, [detail]);
@@ -442,6 +454,7 @@ function FeaApp() {
       margin:{l:40,r:10,t:26,b:34}, paper_bgcolor:"rgba(0,0,0,0)",
       plot_bgcolor:"rgba(0,0,0,0)",
       title:{text:`environmental S ${sens.matrix.length}×${sens.matrix[0].length} rank=${sens.rank} cond=${Number(sens.condition).toFixed(2)}`,font:{size:11}},
+      yaxis:{autorange:"reversed"},
     }, {displayModeBar:false});
   }, [sens]);
 
@@ -484,6 +497,15 @@ function FeaApp() {
         <div id="feaMap" className="fea-chart"></div>
         <div id="feaZ" className="fea-chart"></div>
         <div id="feaS" className="fea-chart"></div>
+        {sens ? (
+          <table className="fw-table">
+            <thead><tr><th>环境变量</th><th>物理含义</th><th>单位</th></tr></thead>
+            <tbody>
+              <tr><td>gravity_deg</td><td>俯仰角/重力方向</td><td>deg</td></tr>
+              <tr><td>thermal_K</td><td>环境温度变化 ΔT</td><td>K</td></tr>
+            </tbody>
+          </table>
+        ) : null}
         {sens ? <div className="fw-note">环境灵敏度来自 M1 重力 0/90° 与热 ±20 K 工况的 Zernike 差分；不是 M2 5-DOF 的 Zemax 灵敏度。</div> : null}
       </div>
     </div>

@@ -31,7 +31,7 @@ curl -s -X POST http://127.0.0.1:8000/api/framework/sensitivity \
   -H 'Content-Type: application/json' -d '{"step":0.001}' | python3 -m json.tool
 curl -s -X POST http://127.0.0.1:8000/api/framework/control \
   -H 'Content-Type: application/json' \
-  -d '{"target":[0.82483,0.4633,-0.23165],"lam":1e-8,"use_bounds":true}' | python3 -m json.tool
+  -d '{"target":[0.23377,-0.09266,0.04633],"lam":1e-8,"use_bounds":true}' | python3 -m json.tool
 ```
 
 实测：
@@ -41,8 +41,8 @@ S = [[4.04,0.083,-0.083,0.976,-0.976],
      [0,-4.633,0,0,0],
      [0,0,-4.633,0,0]]
 rank=3, condition=1.0897, nullspace=2
-u=[0.1856,-0.1,0.05,0.0448,-0.0448]
-residual ~ -4.6e-10
+u=[0.0513,0.0200,-0.0100,0.0124,-0.0124]
+residual ~ -1.3e-10
 ```
 
 ## 3. 前端“③ 框架”区域
@@ -53,7 +53,7 @@ residual ~ -4.6e-10
 - 差分步长 `δ`、Tikhonov `λ` 滑杆；
 - “重算灵敏度矩阵 S”“求解控制量 u”按钮；
 - S 热力图（Plotly，带数值文本）；
-- 控制量柱状图（uz/ux/uy/uα/uβ）；
+- 控制量柱状图（m2_focus / m2_decenter_x / m2_decenter_y / m2_tilt_x / m2_tilt_y）；
 - 指标卡：S 尺寸/rank、condition/nullspace、max|residual|、是否触及边界；
 - target / S·u / residual 表；
 - 页面明确提示：3×5 秩 3、零空间 2 维，目标可复现但 u 不唯一。
@@ -78,6 +78,19 @@ GET /api/fea/sensitivity
 ```
 
 说明见 `docs/FEA案例与灵敏度.md`。
+
+### 3.2 参数逐项解释
+
+每个数字的物理含义、单位和模块 3 的控制量对应关系，见
+[`参数与控制量对照.md`](参数与控制量对照.md)：
+
+- `Z4/Z8/Z9`：目标像差，waves；
+- `δ`：中心差分步长，mm/mrad；
+- `λ`：Tikhonov 正则，不是硬约束；
+- `S_ij=∂z_i/∂u_j`：waves/(mm 或 mrad)；
+- `rank/condition/nullspace`：3×5 秩 3、零空间 2；
+- `m2_focus/decenter_x/decenter_y/tilt_x/tilt_y`：M2 5-DOF 代理；
+- FEA 的 `gravity_deg/thermal_K` 是环境变量，不是 M2 控制量。
 
 ![framework sensitivity](../figs/fig_framework_sensitivity.png)
 

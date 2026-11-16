@@ -10,6 +10,8 @@ class FrameworkServiceTest(unittest.TestCase):
         m = fw.metadata()
         self.assertEqual(m["target_names"], ["Z4", "Z8", "Z9"])
         self.assertEqual(len(m["control_names"]), 5)
+        self.assertEqual(m["control_names"][0], "m2_focus")
+        self.assertEqual(len(m["control_meta"]), 5)
         self.assertEqual(len(m["target"]), 3)
 
     def test_sensitivity(self):

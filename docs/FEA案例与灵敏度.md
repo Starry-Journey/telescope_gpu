@@ -131,7 +131,40 @@ rank=2、condition≈23.07。热列接近零是因为合成热工况只有对称
 前端“④ FEA 案例”区域：工况下拉、面形热力图、15 项 Zernike 柱状图、Z4/Z8/Z9 卡片、环境 S 热力图、合成参考黄条。
 
 
-## 06 替换真实 FEA
+## 06 参数与控制量对应
+
+> 不要把环境 S 当成 M2 5-DOF。
+
+*表 6-1  FEA 参数*
+
+| 量 | 含义 | 单位 |
+|---|---|---|
+| surface | M1/M2/M3 | — |
+| load_case | 重力方向/热工况 | — |
+| aperture_radius_mm | Zernike 归一化半径 | mm |
+| obscuration_ratio | M1 中心遮拦 | — |
+| target_rms_nm | 文档目标 RMS | nm |
+| actual_rms_nm | 合成 map 实际 RMS | nm |
+| dz_nm | 镜面法向位移 | nm |
+| Z4/Z8/Z9 | 拟合系数 | nm |
+| rms/residual_rms | 输入/拟合残差 | nm |
+
+*表 6-2  控制量映射*
+
+| S 列 | 物理含义 | 单位 | 对应模块 |
+|---|---|---|---|
+| gravity_deg | 俯仰/重力方向 | deg | 3B FEA 环境 |
+| thermal_K | 温度变化 ΔT | K | 3B FEA 环境 |
+| m2_focus | M2 轴向调焦 | mm | 3A Zemax/3C 代理 |
+| m2_decenter_x/y | M2 平移 | mm | 3A Zemax/3C 代理 |
+| m2_tilt_x/y | M2 倾斜 | mrad | 3A Zemax/3C 代理 |
+
+当前 FEA 面板的 S 是 3×2 环境 S；M2 5-DOF 的 S 仍是 3×5 代理，接 ZMX/ZOS-API 后才有真实 3A。两套 S 不能混表。
+
+面形 nm 转 waves：dz_nm/632.8；代入 Zemax 还要注意镜面反射 2 倍光程与符号。
+
+
+## 07 替换真实 FEA
 
 > 只换数据，不改架构。
 
@@ -140,7 +173,7 @@ rank=2、condition≈23.07。热列接近零是因为合成热工况只有对称
 Web 服务不直接跑 ANSYS；建议离线求解后上传结果包，避免 license/大文件/沙箱问题。
 
 
-## 07 边界
+## 08 边界
 
 > 不要把合成数据写成实测。
 

@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from .zernike import TERMS, fit_surface
+from scipy.interpolate import griddata
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = ROOT / "data" / "fea_cases"
@@ -45,20 +46,18 @@ def _read_case(case_id: str) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
     return info, np.asarray(xs), np.asarray(ys), np.asarray(zs)
 
 
-def _to_grid(x, y, z, max_bins: int = 56):
-    """Average points into a regular grid for Plotly; outside = None."""
-    ux = np.linspace(x.min(), x.max(), max_bins)
-    uy = np.linspace(y.min(), y.max(), max_bins)
-    ix = np.clip(np.searchsorted(ux, x) - 1, 0, len(ux) - 1)
-    iy = np.clip(np.searchsorted(uy, y) - 1, 0, len(uy) - 1)
-    acc = np.zeros((len(uy), len(ux)))
-    cnt = np.zeros((len(uy), len(ux)))
-    for a, b, v in zip(iy, ix, z):
-        acc[a, b] += v
-        cnt[a, b] += 1
-    with np.errstate(invalid="ignore", divide="ignore"):
-        grid = np.where(cnt > 0, acc / np.maximum(cnt, 1), np.nan)
-    return ux.tolist(), uy.tolist(), [[None if np.isnan(v) else round(float(v), 6) for v in row] for row in grid]
+def _to_grid(x, y, z, radius: Optional[float] = None,
+             obscuration: float = 0.0, max_bins: int = 72):
+    """Interpolate scattered FEA nodes onto a regular grid for Plotly."""
+    ux = np.linspace(float(x.min()), float(x.max()), max_bins)
+    uy = np.linspace(float(y.min()), float(y.max()), max_bins)
+    xx, yy = np.meshgrid(ux, uy)
+    grid = griddata((x, y), z, (xx, yy), method="linear")
+    if radius and radius > 0:
+        rr = np.sqrt(xx * xx + yy * yy) / radius
+        grid[(rr > 1.0) | (rr < obscuration)] = np.nan
+    return (ux.tolist(), uy.tolist(),
+            [[None if np.isnan(v) else round(float(v), 6) for v in row] for row in grid])
 
 
 def case_detail(case_id: str) -> dict:
@@ -69,7 +68,7 @@ def case_detail(case_id: str) -> dict:
     idx = {3: "Z4", 6: "Z9", 7: "Z8"}  # 0-based term indices in TERMS
     coeff = fit["coeff_nm"]
     targets = {label: float(coeff[i]) for i, label in idx.items()}
-    xa, ya, grid = _to_grid(x, y, z)
+    xa, ya, grid = _to_grid(x, y, z, radius, float(info.get("obscuration_ratio", 0.0)))
     return {
         "case": info,
         "grid": {"x": xa, "y": ya, "z": grid, "unit": "nm"},
