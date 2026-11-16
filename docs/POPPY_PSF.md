@@ -70,9 +70,14 @@ PYTHONPATH=. python3 scripts/pd_batch_256.py \
 
 ## 6. 外部对比结果
 
-scripts/poppy_compare.py 比较 POPPY 与自有 analytic forward（同 256²、0.28 遮拦）：
+`scripts/poppy_compare.py` 比较 POPPY 与自有 analytic forward（同 256²、0.28 遮拦）：
 
-
+```text
+defocus +1 wave:
+  POPPY FWHM ~= 76.4 px
+  ours  FWHM ~= 21.5 px
+  normalized SSE ~= 2.3e-8
+```
 
 FWHM 差 3.5 倍，说明两者**像素尺度/OTF 采样**不同；SSE 小只是因为能量被摊开，
 不能据此说模型一致。POPPY 只用于外部检查，不接入求解器。
