@@ -67,7 +67,8 @@ def nearest(index, r, theta, k):
     return index[(i, j, k)]
 
 
-def write_inp(path: Path, direction: str, support: str = "fixed", k: float = 1.0e5):
+def write_inp(path: Path, direction: str, support: str = "fixed", k: float = 1.0e5,
+              k_side: float = 1.0e6):
     nodes, index = build_nodes()
     elems = build_elements(index)
     bottom = []
@@ -93,16 +94,25 @@ def write_inp(path: Path, direction: str, support: str = "fixed", k: float = 1.0
         f.write("*NSET, NSET=SIDE\n" + ",\n".join(map(str, side)) + "\n")
         f.write("*NSET, NSET=TOP\n" + ",\n".join(map(str, top)) + "\n")
         if support == "spring":
-            # SPRING1 to ground, z direction for the 36 bottom supports.
+            # SPRING1 to ground: z for bottom, global x/y for side (side pads).
             f.write("*ELEMENT, TYPE=SPRING1, ELSET=BOTSPR\n")
-            for eid, nid in enumerate(bottom, len(elems) + 1):
-                f.write("%d, %d\n" % (eid, nid))
+            next_eid = len(elems) + 1
+            for nid in bottom:
+                f.write("%d, %d\n" % (next_eid, nid)); next_eid += 1
             f.write("*SPRING, ELSET=BOTSPR\n3\n%.6e\n" % k)
+            f.write("*ELEMENT, TYPE=SPRING1, ELSET=SIDESPRX\n")
+            for nid in side:
+                f.write("%d, %d\n" % (next_eid, nid)); next_eid += 1
+            f.write("*SPRING, ELSET=SIDESPRX\n1\n%.6e\n" % k_side)
+            f.write("*ELEMENT, TYPE=SPRING1, ELSET=SIDESPRY\n")
+            for nid in side:
+                f.write("%d, %d\n" % (next_eid, nid)); next_eid += 1
+            f.write("*SPRING, ELSET=SIDESPRY\n2\n%.6e\n" % k_side)
         f.write("*MATERIAL, NAME=ZERODUR\n*ELASTIC\n90000., 0.24\n*DENSITY\n2.53e-9\n")
         f.write("*SOLID SECTION, ELSET=EALL, MATERIAL=ZERODUR\n")
         f.write("*STEP\n*STATIC\n")
         if support == "spring":
-            f.write("*BOUNDARY\nSIDE,1,2\n")
+            pass
         else:
             f.write("*BOUNDARY\nBOT,1,3\nSIDE,1,2\n")
         if direction == "0deg":
@@ -154,11 +164,12 @@ def main():
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--support", choices=("fixed", "spring"), default="fixed")
     ap.add_argument("--k", type=float, default=1.0e7)
+    ap.add_argument("--k-side", type=float, default=1.0e6)
     args = ap.parse_args()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     for direction in ("0deg", "90deg"):
         inp = out / ("m1_" + direction + ".inp")
-        n, e, b, s = write_inp(inp, direction, args.support, args.k)
+        n, e, b, s = write_inp(inp, direction, args.support, args.k, args.k_side)
         print(inp, "nodes", n, "elements", e, "bottom", b, "side", s)
         if args.run:
             subprocess.run([args.ccx, "-i", str(inp.with_suffix(""))], check=True, cwd=out)
