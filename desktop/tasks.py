@@ -15,16 +15,9 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, Signal
+from desktop.protocol import build_worker_command, make_job
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def build_worker_command(task, job_path, result_path, frozen=False, root=ROOT):
-    """Return (program, args) for a worker; source mode must use qt_app.py."""
-    if frozen:
-        return sys.executable, ["--worker", task, "--job", str(job_path), "--result", str(result_path)]
-    return sys.executable, [str(Path(root) / "desktop" / "qt_app.py"),
-                            "--worker", task, "--job", str(job_path), "--result", str(result_path)]
 
 
 class TaskRunner(QObject):
@@ -38,6 +31,7 @@ class TaskRunner(QObject):
         self.task_root = Path(task_root)
         self.task_root.mkdir(parents=True, exist_ok=True)
         self.task = None
+        self.last_elapsed = 0.0
         self._cleanup_stale()
 
     def _cleanup_stale(self):
@@ -57,9 +51,8 @@ class TaskRunner(QObject):
         td = Path(tempfile.mkdtemp(prefix="task_", dir=str(self.task_root)))
         job = td / "job.json"
         result = td / "result.json"
-        job.write_text(json.dumps({"schema_version": 1, "task_id": task_id,
-                                   "task": task, "created": time.time(),
-                                   "payload": payload}, default=str), encoding="utf-8")
+        job.write_text(json.dumps(make_job(task, payload, task_id), default=str),
+                       encoding="utf-8")
         proc = QProcess(self)
         proc.setWorkingDirectory(str(ROOT))
         self.task = {"id": task_id, "dir": td, "job": job, "result": result,
@@ -95,7 +88,9 @@ class TaskRunner(QObject):
             shutil.rmtree(t["dir"])
         except OSError:
             pass
-        return t, raw, data, time.time() - t["start"]
+        elapsed = time.time() - t["start"]
+        self.last_elapsed = elapsed
+        return t, raw, data, elapsed
 
     def _on_finished(self, code, status):
         t = self.task
@@ -109,8 +104,9 @@ class TaskRunner(QObject):
         if cancelled:
             self.cancelled.emit()
             return
-        if code != 0 or (isinstance(data, dict) and "error" in data):
-            msg = (data or {}).get("error", raw[-2000:] or "worker failed")
+        if code != 0 or data is None or (isinstance(data, dict) and "error" in data):
+            msg = (data or {}).get("error") if isinstance(data, dict) else None
+            msg = msg or ("worker produced no result" if data is None else raw[-2000:] or "worker failed")
             self.failed.emit(str(msg) + "\n\nworker stderr/stdout:\n" + raw[-3000:])
             return
         self.finished.emit(data or {})
@@ -131,5 +127,8 @@ class TaskRunner(QObject):
             return False
         t["cancelled"] = True
         t["proc"].kill()
-        t["proc"].waitForFinished(1500)
+        finished = t["proc"].waitForFinished(1500)
+        if not finished:
+            self._take_result()
+            self.cancelled.emit()
         return True

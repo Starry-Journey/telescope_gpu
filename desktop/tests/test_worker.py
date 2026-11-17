@@ -10,10 +10,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class WorkerDispatchTest(unittest.TestCase):
     def _run_worker(self, task, payload):
+        from desktop.protocol import make_job
         with tempfile.TemporaryDirectory() as td:
             job = Path(td) / "job.json"
             result = Path(td) / "result.json"
-            job.write_text(json.dumps(payload), encoding="utf-8")
+            job.write_text(json.dumps(make_job(task, payload, "test-task")), encoding="utf-8")
             subprocess.run([sys.executable, str(ROOT / "desktop" / "qt_app.py"),
                             "--worker", task, "--job", str(job), "--result", str(result)],
                            check=True, cwd=str(ROOT), timeout=120)

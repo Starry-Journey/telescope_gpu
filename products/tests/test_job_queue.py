@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from products.jobs.store import JobStore
+import products.jobs.store as js
 
 
 class JobQueueTest(unittest.TestCase):
@@ -17,6 +18,10 @@ class JobQueueTest(unittest.TestCase):
             self.assertEqual(store.get(jid)["status"], "done")
             # a second claim must not steal a running/done job
             self.assertIsNone(store.claim("zemax", "worker-2"))
+
+    def test_default_root(self):
+        self.assertEqual(js.ROOT, Path(__file__).resolve().parents[2])
+        self.assertEqual(js.DB_PATH, js.ROOT / "results" / "jobs.sqlite3")
 
 
 if __name__ == "__main__":

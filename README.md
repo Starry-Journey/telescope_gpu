@@ -90,7 +90,7 @@ products/sensitivity/  FEA 案例/面形→Zernike/环境 S
 framework/             通用反演/控制 C++ 框架
 numerics/              C++ 数值库（Eigen/GTest/Benchmark/pybind11）
 ml/                    PyTorch 可微前向 + CNN + 传统对比
-web/                   FastAPI + React 三模块界面
+web/                   兼容 wrapper；旧 Web 在 archive/legacy-web/
 data/fea_cases/        合成 FEA 参考工况
 docs/                  架构、模块、教程、技术报告
 ```
@@ -268,7 +268,7 @@ final cost = 5.3124e-03 (cost(true) = 5.3125e-03)
 - `docs/数值库技术说明.docx`：`numerics/`（Eigen/GTest/Benchmark/pybind11）。
 - `docs/CCD星场处理管线说明.docx`：`pipeline/`（定标/星点/帧差/Hough/WCS/评估）。
 - `docs/学习型反演技术说明.docx`：`ml/`（可微前向/CNN/two-stage）。
-- `docs/Web小程序技术说明.docx`：`web/`（FastAPI/React/Plotly/故障排查）。
+- 旧 Web 文档：`docs/archive/Web小程序技术说明.docx`（已归档）。
 - `docs/技术报告_代码对齐版_v2.docx`：主技术报告 + 附录D 工程化扩展与代码对齐。
 - `docs/模块化文档索引.md`：模块文档/命令/口径索引。
 - `docs/tutorials/`：逐模块教程与复现命令。
@@ -310,6 +310,8 @@ python3 -m unittest discover -s web/tests -v
 接口：
 
 ```text
+> 旧 Web API 已归档到 `archive/legacy-web/`；以下是历史接口，仅追溯。
+
 GET /api/fea/cases
 GET /api/fea/cases/{id}
 GET /api/fea/sensitivity

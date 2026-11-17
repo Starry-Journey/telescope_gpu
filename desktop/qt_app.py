@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import traceback
 from pathlib import Path
 
@@ -16,6 +17,7 @@ if str(ROOT) not in sys.path:
 
 
 def main():
+    t0 = time.perf_counter()
     ap = argparse.ArgumentParser()
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--smoke-test", action="store_true")
@@ -45,7 +47,7 @@ def main():
         print("smoke frames", len(r["psf"]), "shape", np.asarray(r["psf"]).shape)
         return
     from desktop.gui import run_gui
-    run_gui()
+    run_gui(t0)
 
 
 if __name__ == "__main__":

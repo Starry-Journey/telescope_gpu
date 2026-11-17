@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.environ.get("TEL_JOB_DB", str(ROOT / "results" / "jobs.sqlite3")))
 
 
@@ -80,4 +80,30 @@ class JobStore:
                         (error, time.time(), jid))
 
 
-store = JobStore()
+_store = None
+
+
+def get_store():
+    global _store
+    if _store is None:
+        __store = None
+
+
+def get_store():
+    global _store
+    if _store is None:
+        _store = JobStore()
+    return _store
+
+
+def __getattr__(name):
+    if name == "store":
+        return get_store()
+    raise AttributeError(name)
+    return _store
+
+
+def __getattr__(name):
+    if name == "store":
+        return get_store()
+    raise AttributeError(name)

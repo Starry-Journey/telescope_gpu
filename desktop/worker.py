@@ -9,9 +9,11 @@ from pathlib import Path
 
 def run_worker(task, job_path=None, result_path=None):
     if job_path:
-        payload = json.loads(Path(job_path).read_text(encoding="utf-8-sig"))
+        doc = json.loads(Path(job_path).read_text(encoding="utf-8-sig"))
     else:
-        payload = json.loads(sys.stdin.read() or "{}")
+        doc = json.loads(sys.stdin.read() or "{}")
+    from desktop.protocol import parse_job
+    payload = parse_job(doc, task)
     if task == "ccd":
         from products.ccd.service import run_ccd_pipeline
         r = run_ccd_pipeline(payload["c4"], payload["c8"], payload["c9"],

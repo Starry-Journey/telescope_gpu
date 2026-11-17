@@ -12,9 +12,7 @@ import base64
 import csv
 import io
 import json
-import os
 import sys
-import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import Qt, QThread, Signal, QProcess
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap, QDesktopServices
 from PySide6.QtCore import QUrl
 from desktop.tasks import TaskRunner
@@ -152,8 +150,6 @@ class QtApp(QMainWindow):
         self.runner.finished.connect(self._on_task_done)
         self.runner.failed.connect(self._on_task_failed)
         self.runner.cancelled.connect(self._on_task_cancelled)
-        self.proc = None
-        self._proc_out = bytearray()
         if getattr(sys, "frozen", False):
             self.log_path = Path(sys.executable).resolve().parent / "qt_gui.log"
         else:
@@ -254,8 +250,6 @@ class QtApp(QMainWindow):
         self.tabs.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.active_worker = None
-        self.proc = None
-        self._proc_out = bytearray()
 
     def _task_root(self):
         """Writable dir for job/result JSON (portable + sandbox friendly)."""
@@ -289,6 +283,7 @@ class QtApp(QMainWindow):
         label = self._task_label
         self._task_done = None
         self.ready()
+        self._log("TASK ok %s %.2fs" % (label, self.runner.last_elapsed))
         self.status("完成: " + label)
         if done:
             done(data or {})
@@ -311,6 +306,8 @@ class QtApp(QMainWindow):
 
     def cancel_task(self):
         if not self.runner.busy():
+            if getattr(self, "active_worker", None) is not None:
+                self.status("演示任务不可中断（短任务，请等待完成）", WARN)
             return
         if QMessageBox.question(self, "取消任务",
                                 "终止当前子进程？服务计算会立即停止。") != QMessageBox.Yes:
@@ -743,7 +740,8 @@ class QtApp(QMainWindow):
         self.demo_log.setPlainText("shape=%s, frames=5, defocus=-2..2 waves" % (stack.shape,))
 
 
-def run_gui():
+def run_gui(t0=None):
+    import time
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
     try:
@@ -761,6 +759,10 @@ def run_gui():
         box.exec()
         raise
     w.show()
+    try:
+        w._log("startup %.2fs (entry->show)" % (time.perf_counter() - (t0 or time.perf_counter())))
+    except Exception:
+        pass
     app.exec()
 
 
