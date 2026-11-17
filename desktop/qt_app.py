@@ -97,6 +97,25 @@ def _fea_png(detail):
     return pix
 
 
+def _bar_png(labels, values, title="Zernike"):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(6, 3.2))
+    vals = [float(v) for v in values]
+    ax.bar(range(len(vals)), vals, color="#4da3ff")
+    ax.set_xticks(range(len(vals)))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.axhline(0, color="#888", linewidth=0.8)
+    ax.set_ylabel("nm")
+    ax.set_title(title, fontsize=9)
+    fig.tight_layout()
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    pix = QPixmap(); pix.loadFromData(buf.getvalue())
+    return pix
+
+
 def _frames_png(stack):
     import matplotlib
     matplotlib.use("Agg")
@@ -517,7 +536,12 @@ class QtApp(QMainWindow):
         exp.clicked.connect(lambda: self._save_json(self.last_pd or {}, "pd_result.json"))
         row.addWidget(btn); row.addWidget(exp); row.addStretch(1)
         lay.addLayout(row)
-        self.pd_log = QTextEdit(); self.pd_log.setReadOnly(True)
+        self.pd_img = QLabel("Zernike 柱状图")
+        self.pd_img.setAlignment(Qt.AlignCenter)
+        self.pd_img.setMinimumSize(520, 280)
+        self.pd_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
+        lay.addWidget(self.pd_img, 2)
+        self.pd_log = QTextEdit(); self.pd_log.setReadOnly(True); self.pd_log.setMaximumHeight(150)
         lay.addWidget(self.pd_log, 1)
         return w
 
@@ -534,6 +558,12 @@ class QtApp(QMainWindow):
         self.last_pd = r
         self.pd_log.setPlainText("Z=%s\nnfev=%s cost=%s\nresidual_rms=%s" %
                                  (r["zernike"], r["nfev"], r["cost"], r.get("residual_rms")))
+        try:
+            z = r.get("zernike", [])
+            self.pd_img.setPixmap(_bar_png(["Z4", "Z8", "Z9"], z, "PD Zernike [nm]").scaled(
+                self.pd_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        except Exception as e:
+            self.pd_log.append("bar error: " + str(e))
 
     # ---------- FEA ----------
     def tab_fea(self):
@@ -549,12 +579,19 @@ class QtApp(QMainWindow):
         self.fea_img = QLabel(); self.fea_img.setAlignment(Qt.AlignCenter)
         self.fea_img.setMinimumSize(720, 420); self.fea_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;")
         lay.addWidget(self.fea_img, 3)
+        self.fea_bar = QLabel("Zernike 柱状图")
+        self.fea_bar.setAlignment(Qt.AlignCenter)
+        self.fea_bar.setMinimumSize(600, 220)
+        self.fea_bar.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
+        lay.addWidget(self.fea_bar, 2)
         bar = QHBoxLayout()
         png = QPushButton("导出 PNG"); png.setObjectName("Ghost")
         png.clicked.connect(lambda: self._save_pixmap(self.fea_img, "fea_surface.png"))
         js = QPushButton("导出拟合 JSON"); js.setObjectName("Ghost")
         js.clicked.connect(lambda: self._save_json(self.last_fea or {}, "fea_fit.json"))
-        bar.addWidget(png); bar.addWidget(js); bar.addStretch(1)
+        bp = QPushButton("导出柱状图"); bp.setObjectName("Ghost")
+        bp.clicked.connect(lambda: self._save_pixmap(self.fea_bar, "fea_zernike.png"))
+        bar.addWidget(png); bar.addWidget(js); bar.addWidget(bp); bar.addStretch(1)
         lay.addLayout(bar)
         self.fea_log = QTextEdit(); self.fea_log.setReadOnly(True); self.fea_log.setMaximumHeight(130)
         lay.addWidget(self.fea_log, 1)
@@ -568,8 +605,6 @@ class QtApp(QMainWindow):
             for c in cases:
                 self.case_box.addItem(c["id"])
             self.case_box.blockSignals(False)
-            if cases:
-                self.load_case(cases[0]["id"])
         except Exception as e:
             self.fea_log.setPlainText("cases error: " + str(e))
 
@@ -584,6 +619,14 @@ class QtApp(QMainWindow):
         self.fea_log.setPlainText("case=%s\nsynthetic=%s targets=%s\nresidual=%s" %
                                   (d["case"].get("id"), d["case"].get("synthetic"),
                                    d["fit"]["targets_nm"], d["fit"]["residual_rms_nm"]))
+        try:
+            terms = d["fit"]["terms"][:15]
+            labels = [t["label"] for t in terms]
+            vals = d["fit"]["coefficients_nm"][:15]
+            self.fea_bar.setPixmap(_bar_png(labels, vals, "FEA Zernike [nm]").scaled(
+                self.fea_bar.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        except Exception as e:
+            self.fea_log.append("bar error: " + str(e))
 
     def upload_fea(self):
         path, _ = QFileDialog.getOpenFileName(self, "FEA CSV", "", "CSV (*.csv *.txt)")
@@ -763,6 +806,7 @@ def main():
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--smoke-test", action="store_true")
     ap.add_argument("--worker", default="")
+    ap.add_argument("--screenshot", default="")
     ap.add_argument("--job", default="")
     ap.add_argument("--result", default="")
     args = ap.parse_args()
