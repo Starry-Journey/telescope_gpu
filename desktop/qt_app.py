@@ -14,6 +14,7 @@ import csv
 import io
 import json
 import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -28,7 +29,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
-    QPushButton, QSpinBox, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QPushButton, QSpinBox, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QDialog,
 )
 
 DEFOCUS = "-2,-1,0,1,2"
@@ -70,7 +71,7 @@ class Worker(QThread):
         try:
             self.result.emit(self.fn())
         except Exception as e:
-            self.failed.emit(str(e))
+            self.failed.emit(str(e) + "\n\n" + traceback.format_exc())
 
 
 def _png(url):
@@ -119,6 +120,7 @@ class QtApp(QMainWindow):
         self.last_ccd = None
         self.last_pd = None
         self.last_fea = None
+        self.frames = []
         self._workers = []
         self.active_worker = None
         self.log_path = ROOT / "results" / "qt_gui.log"
@@ -140,6 +142,10 @@ class QtApp(QMainWindow):
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_task)
         header.addWidget(self.cancel_btn, 0, Qt.AlignTop)
+        self.log_btn = QPushButton("日志")
+        self.log_btn.setObjectName("Ghost")
+        self.log_btn.clicked.connect(self.show_log)
+        header.addWidget(self.log_btn, 0, Qt.AlignTop)
         root.addLayout(header)
 
         self.tabs = QTabWidget()
@@ -162,6 +168,19 @@ class QtApp(QMainWindow):
         self.badge.setStyleSheet(
             "background:#0b1117;color:%s;border:1px solid #2a3a4a;border-radius:11px;padding:3px 10px;font-weight:600;" % color)
         self.statusBar().showMessage(text)
+
+    def show_log(self):
+        d = QDialog(self)
+        d.setWindowTitle("Qt GUI log")
+        d.resize(900, 520)
+        lay = QVBoxLayout(d)
+        te = QTextEdit(); te.setReadOnly(True)
+        try:
+            te.setPlainText(self.log_path.read_text(encoding="utf-8")[-200000:])
+        except Exception as e:
+            te.setPlainText(str(e))
+        lay.addWidget(te)
+        d.exec()
 
     def _log(self, text):
         try:
@@ -213,7 +232,10 @@ class QtApp(QMainWindow):
 
         def fail(e):
             self.ready(); self.status("失败: " + label, BAD)
-            QMessageBox.critical(self, label, e)
+            self._log("ERROR " + label + "\n" + e)
+            box = QMessageBox(QMessageBox.Critical, label, e.split("\n")[0], QMessageBox.Ok, self)
+            box.setDetailedText(e)
+            box.exec()
 
         w.result.connect(finish); w.failed.connect(fail)
         w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
@@ -261,13 +283,29 @@ class QtApp(QMainWindow):
         lay.addWidget(box, 1)
 
         right = QVBoxLayout()
-        card = QGroupBox("PSF preview"); rl = QVBoxLayout(card)
-        self.ccd_img = QLabel("PSF preview"); self.ccd_img.setAlignment(Qt.AlignCenter)
-        self.ccd_img.setMinimumSize(640, 420)
+        card = QGroupBox("CCD / PSF preview"); rl = QVBoxLayout(card)
+        self.preview_tabs = QTabWidget()
+        # star-field tab
+        star_w = QWidget(); sl = QVBoxLayout(star_w)
+        srow = QHBoxLayout(); srow.addWidget(QLabel("帧"))
+        self.star_combo = QComboBox(); self.star_combo.currentIndexChanged.connect(self.show_star)
+        srow.addWidget(self.star_combo, 1); sl.addLayout(srow)
+        self.star_img = QLabel("星场帧"); self.star_img.setAlignment(Qt.AlignCenter)
+        self.star_img.setMinimumSize(640, 360)
+        self.star_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
+        sl.addWidget(self.star_img, 1)
+        self.preview_tabs.addTab(star_w, "星空帧")
+        # PSF tab
+        psf_w = QWidget(); pl = QVBoxLayout(psf_w)
+        self.ccd_img = QLabel("PSF 5 帧"); self.ccd_img.setAlignment(Qt.AlignCenter)
+        self.ccd_img.setMinimumSize(640, 360)
         self.ccd_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
-        rl.addWidget(self.ccd_img, 1)
+        pl.addWidget(self.ccd_img, 1)
+        self.preview_tabs.addTab(psf_w, "PSF 5 帧")
+        rl.addWidget(self.preview_tabs, 1)
         bar = QHBoxLayout()
-        for t, fn in (("导出 PNG", lambda: self._save_pixmap(self.ccd_img, "ccd_psf.png")),
+        for t, fn in (("导出星场 PNG", self._save_star),
+                      ("导出 PSF PNG", lambda: self._save_pixmap(self.ccd_img, "ccd_psf.png")),
                       ("导出 NPY", self._save_npy),
                       ("导出 metrics", lambda: self._save_json(self.last_ccd or {}, "ccd_metrics.json"))):
             b = QPushButton(t); b.setObjectName("Ghost"); b.clicked.connect(fn); bar.addWidget(b)
@@ -289,9 +327,34 @@ class QtApp(QMainWindow):
             return run_ccd_pipeline(c4, c8, c9, noise, stars, df)
         self._run(fn, self._on_ccd, "CCD 合成")
 
+    def _populate_frames(self, frames):
+        self.frames = frames or []
+        self.star_combo.blockSignals(True); self.star_combo.clear()
+        for i, f in enumerate(self.frames):
+            d = f.get("defocus") if isinstance(f, dict) else None
+            self.star_combo.addItem("frame %d%s" % (i, "" if d is None else "  (%+.1f waves)" % d))
+        self.star_combo.blockSignals(False)
+        self.show_star(0)
+
+    def show_star(self, idx):
+        if not self.frames or idx < 0 or idx >= len(self.frames):
+            return
+        f = self.frames[idx]
+        url = f.get("raw") if isinstance(f, dict) else str(f)
+        self.star_img.setPixmap(_png(url).scaled(self.star_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def _save_star(self):
+        pix = self.star_img.pixmap()
+        if pix is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "导出星场", "ccd_star.png", "PNG (*.png)")
+        if path:
+            pix.save(path, "PNG"); self.status("已导出 " + path)
+
     def _on_ccd(self, r):
         self.last_ccd = r
         self.psf = np.asarray(r["psf"], dtype=float); self.defocus = r["defocus"]
+        self._populate_frames(r.get("frames", []))
         self._show_stack(self.psf)
         self.ccd_log.setPlainText("frames=%s shape=%s\nmetrics=%s" %
                                   (r["metrics"]["n_frames"], self.psf.shape, r["metrics"]))
@@ -311,6 +374,7 @@ class QtApp(QMainWindow):
     def _on_fits(self, r):
         self.last_ccd = r
         self.psf = np.asarray(r["psf"], dtype=float); self.defocus = r.get("defocus", self._defocus())
+        self._populate_frames(r.get("frames", []))
         self._show_stack(self.psf)
         self.ccd_log.setPlainText("real FITS: %d frames, shape=%s, star=%s" % (len(self.psf), self.psf.shape, r.get("star")))
 
