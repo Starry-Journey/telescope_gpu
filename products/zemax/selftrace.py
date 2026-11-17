@@ -83,8 +83,8 @@ def intersect(ray, surf, dx=0.0, dy=0.0, tx=0.0, ty=0.0):
     return Ray(p_global, d_out), t
 
 
-def trace_path(h, theta, dx=0.0, dy=0.0, tx=0.0, ty=0.0, focus=0.0):
-    """Return image point and total geometric path length."""
+def trace_exit(h, theta, dx=0.0, dy=0.0, tx=0.0, ty=0.0, focus=0.0):
+    """Return exit-pupil point, direction, and object->exit path length."""
     x, y = h * math.cos(theta), h * math.sin(theta)
     ray = Ray(np.array([x, y, OBJ_Z]), np.array([0.0, 0.0, 1.0]))
     start = ray.o.copy()
@@ -93,7 +93,42 @@ def trace_path(h, theta, dx=0.0, dy=0.0, tx=0.0, ty=0.0, focus=0.0):
     m2 = dict(M2); m2["z"] += focus
     ray, _ = intersect(ray, m2, dx, dy, tx, ty)
     p2 = ray.o.copy()
-    t = (IMAGE_Z - ray.o[2]) / ray.d[2]
-    p3 = ray.o + t * ray.d
-    path = np.linalg.norm(p1 - start) + np.linalg.norm(p2 - p1) + np.linalg.norm(p3 - p2)
-    return p3, path
+    path = np.linalg.norm(p1 - start) + np.linalg.norm(p2 - p1)
+    return p2, ray.d.copy(), path
+
+
+def trace_path(h, theta, dx=0.0, dy=0.0, tx=0.0, ty=0.0, focus=0.0):
+    """Return image point and total geometric path length (no ref sphere)."""
+    p2, d, path = trace_exit(h, theta, dx, dy, tx, ty, focus)
+    t = (IMAGE_Z - p2[2]) / d[2]
+    p3 = p2 + t * d
+    return p3, path + t
+
+
+def opd_reference_sphere(h, theta, dx=0.0, dy=0.0, tx=0.0, ty=0.0, focus=0.0,
+                         chief_h=None):
+    """OPD to a sphere centered at the chief image point.
+
+    This is the missing piece versus the previous fixed-image-plane OPD.
+    """
+    if chief_h is None:
+        chief_h = 0.30 * M1["R"]
+    cp2, cd, cpath = trace_exit(chief_h, 0.0, dx, dy, tx, ty, focus)
+    ct = (IMAGE_Z - cp2[2]) / cd[2]
+    center = cp2 + ct * cd
+    radius = np.linalg.norm(cp2 - center)
+
+    p2, d, path = trace_exit(h, theta, dx, dy, tx, ty, focus)
+    w = p2 - center
+    b = 2.0 * np.dot(d, w)
+    c = float(np.dot(w, w) - radius * radius)
+    disc = b * b - 4.0 * c
+    if disc < 0:
+        # ray misses the reference sphere; use closest approach
+        t = -np.dot(d, w)
+    else:
+        sq = math.sqrt(disc)
+        roots = [(-b - sq) / 2.0, (-b + sq) / 2.0]
+        roots = [r for r in roots if r > 0]
+        t = min(roots) if roots else radius
+    return (path + t) - (cpath + radius), center, radius
