@@ -18,14 +18,15 @@ def objective(data, defocus, n, obscuration=0.0):
     return fun
 
 
-def solve_one(x0, data, defocus, n, maxeval, obscuration=0.0):
+def solve_one(x0, data, defocus, n, maxeval, obscuration=0.0,
+              ftol_rel=1e-8, xtol_rel=1e-6):
     opt = nlopt.opt(nlopt.LN_BOBYQA, 3)
     opt.set_lower_bounds([-1.5, -0.5, -0.5])
     opt.set_upper_bounds([1.5, 0.5, 0.5])
     opt.set_min_objective(objective(data, defocus, n, obscuration))
     opt.set_maxeval(int(maxeval))
-    opt.set_ftol_rel(1e-8)
-    opt.set_xtol_rel(1e-6)
+    opt.set_ftol_rel(float(ftol_rel))
+    opt.set_xtol_rel(float(xtol_rel))
     opt.set_initial_step(0.1)
     try:
         x = opt.optimize(np.asarray(x0, dtype=float))

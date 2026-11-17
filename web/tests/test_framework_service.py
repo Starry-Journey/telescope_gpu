@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from web import framework_service as fw
+from products.control import service as fw
 
 
 class FrameworkServiceTest(unittest.TestCase):

@@ -13,11 +13,11 @@
 
 ```text
 PySide6 QMainWindow
-  ├─ ① CCD / PSF    直接调用 web.ccd_pipeline_service / fits_pipeline_service
-  ├─ ② 相位差反演   直接调用 web.pd_service
+  ├─ ① CCD / PSF    直接调用 products.ccd.service / fits_service
+  ├─ ② 相位差反演   直接调用 products.pd.service
   ├─ ③B FEA / 66项 直接调用 products.sensitivity.service
   ├─ ③A ZMX        直接调用 products.zemax.zmx_parser
-  └─ ③C S / 控制   直接调用 web.framework_service
+  └─ ③C S / 控制   直接调用 products.control.service
 ```
 
 所有图像用 Qt QPixmap；FEA 图用 Matplotlib Agg 转 PNG，再交给 Qt。

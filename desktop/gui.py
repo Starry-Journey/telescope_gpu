@@ -8,7 +8,6 @@ Tabs: CCD/PSF, PD, FEA/66-term, ZMX, S/control, demo.
 """
 from __future__ import annotations
 
-import argparse
 import base64
 import csv
 import io
@@ -271,8 +270,10 @@ class QtApp(QMainWindow):
         can be many MB, and stderr warnings must not corrupt JSON.
         """
         self.busy(label)
+        self._cancelled = False
         self._proc_out = bytearray()
         p = QProcess(self)
+        p.setWorkingDirectory(str(ROOT))
         self.proc = p
         td = Path(tempfile.mkdtemp(prefix="task_", dir=str(self._task_root())))
         job_path = td / "job.json"
@@ -283,7 +284,7 @@ class QtApp(QMainWindow):
             args = ["--worker", task, "--job", str(job_path), "--result", str(result_path)]
         else:
             prog = sys.executable
-            args = [str(Path(__file__).resolve()), "--worker", task,
+            args = [str(ROOT / "desktop" / "qt_app.py"), "--worker", task,
                     "--job", str(job_path), "--result", str(result_path)]
         p.readyReadStandardOutput.connect(
             lambda: self._proc_out.extend(bytes(p.readAllStandardOutput())))
@@ -301,6 +302,9 @@ class QtApp(QMainWindow):
 
         def finished(code, status):
             self.ready()
+            if getattr(self, "_cancelled", False):
+                self._cancelled = False
+                return
             raw = bytes(self._proc_out).decode("utf-8", "replace").strip()
             data = None
             try:
@@ -331,6 +335,7 @@ class QtApp(QMainWindow):
         if QMessageBox.question(self, "取消任务",
                                 "终止当前子进程？服务计算会立即停止。") != QMessageBox.Yes:
             return
+        self._cancelled = True
         p.kill()
         p.waitForFinished(1500)
         self.ready()
@@ -770,8 +775,13 @@ def run_gui():
     try:
         w = QtApp()
     except Exception as e:
-        log = Path(sys.executable).resolve().parent / "qt_startup_error.log"
-        log.write_text(traceback.format_exc(), encoding="utf-8")
+        base = (Path(sys.executable).resolve().parent
+                if getattr(sys, "frozen", False) else ROOT / "results")
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            (base / "qt_startup_error.log").write_text(traceback.format_exc(), encoding="utf-8")
+        except OSError:
+            pass
         box = QMessageBox(QMessageBox.Critical, "Qt startup", str(e), QMessageBox.Ok)
         box.setDetailedText(traceback.format_exc())
         box.exec()
@@ -780,5 +790,3 @@ def run_gui():
     app.exec()
 
 
-if __name__ == "__main__":
-    run_gui()

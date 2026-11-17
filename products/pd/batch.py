@@ -15,12 +15,10 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
-import nlopt
 
-from ml.traditional import forward_psf_numpy
 
 ROOT = Path(__file__).resolve().parents[2]
 CKPT = ROOT / "ml" / "runs" / "cnn.pt"

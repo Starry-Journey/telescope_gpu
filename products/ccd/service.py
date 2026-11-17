@@ -1,19 +1,13 @@
 """Module 1: realistic CCD simulation + calibration + PSF cutouts."""
 from __future__ import annotations
 
-import base64
-import io
 import json
 import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-from scipy.ndimage import shift
 
 from pipeline.realistic import RealisticConfig, simulate_realistic
 from products.ccd.io import clean_cutout as _clean_cutout, cutout as _cutout, png_data_url as _png

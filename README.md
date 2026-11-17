@@ -45,7 +45,7 @@ python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
 python3 -m ml.compare --samples 4 --starts 16 --max-nfev 100
 
 # 可视化
-python3 -m uvicorn web.api.main:app --port 8000
+python desktop/qt_app.py            # Qt 桌面主入口
 ```
 
 目录/数据流：`docs/目录与模块架构.md`；文档索引：`docs/模块化文档索引.md`；
@@ -330,8 +330,8 @@ GET /api/fea/sensitivity
 运行：
 
 ```bash
-python3 -m uvicorn web.api.main:app --reload --port 8000
-# http://127.0.0.1:8000/
+python desktop/qt_app.py            # Qt native；或 scripts/run_telescope.cmd
+# 旧 Web 已归档到 archive/legacy-web/
 ```
 
 模块 1 生成 5 帧真实感 CCD 与 64×64 PSF；模块 2 用这批 PSF 做 PD/BOBYQA；

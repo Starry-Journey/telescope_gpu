@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Sequence
 
 import numpy as np
-import nlopt
 
 from ml.traditional import forward_psf_numpy
 
@@ -36,10 +35,12 @@ def invert_psf(psf: List[List[List[float]]], defocus: Sequence[float],
     for _ in range(n_starts - 1):
         starts.append(rng.uniform([-1.2, -0.35, -0.35], [1.2, 0.35, 0.35]))
     if n_starts == 1:
-        results = [_solve_one(starts[0], data, defocus, n, maxeval)]
+        results = [_solve_one(starts[0], data, defocus, n, maxeval,
+                          ftol_rel=1e-9, xtol_rel=1e-7)]
     else:
         with ThreadPoolExecutor(max_workers=n_starts) as ex:
-            results = list(ex.map(lambda x0: _solve_one(x0, data, defocus, n, maxeval), starts))
+            results = list(ex.map(lambda x0: _solve_one(x0, data, defocus, n, maxeval,
+                                                         ftol_rel=1e-9, xtol_rel=1e-7), starts))
     best = min(results, key=lambda r: r[2])
     coeff = best[0]
     pred = _normalise(np.stack([forward_psf_numpy(coeff, float(d), n=n)

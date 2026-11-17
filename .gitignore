@@ -52,3 +52,5 @@ ml/results/
 !docs/data/*.csv
 !docs/data/
 !docs/data/*.csv
+~$*
+qt_tasks/
