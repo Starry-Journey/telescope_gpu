@@ -15,6 +15,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -127,8 +128,14 @@ class QtApp(QMainWindow):
         self.active_worker = None
         self.proc = None
         self._proc_out = bytearray()
-        self.log_path = ROOT / "results" / "qt_gui.log"
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        if getattr(sys, "frozen", False):
+            self.log_path = Path(sys.executable).resolve().parent / "qt_gui.log"
+        else:
+            self.log_path = ROOT / "results" / "qt_gui.log"
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
         central = QWidget(); root = QVBoxLayout(central)
         header = QHBoxLayout()
@@ -167,7 +174,6 @@ class QtApp(QMainWindow):
         self.setCentralWidget(central)
         self.statusBar().showMessage("Ready")
         self._log("Qt GUI started")
-        self._refresh_cases()
 
     # ---------- helpers ----------
     def status(self, text, color=GOOD):
@@ -225,45 +231,79 @@ class QtApp(QMainWindow):
         self.proc = None
         self._proc_out = bytearray()
 
+    def _task_root(self):
+        """Writable dir for job/result JSON (portable + sandbox friendly)."""
+        candidates = [Path(sys.executable).resolve().parent / "qt_tasks",
+                      ROOT / "results" / "qt_tasks"]
+        for c in candidates:
+            try:
+                c.mkdir(parents=True, exist_ok=True)
+                (c / ".write_test").write_text("ok", encoding="utf-8")
+                (c / ".write_test").unlink()
+                return c
+            except Exception:
+                continue
+        raise RuntimeError("no writable qt_tasks directory")
+
     def _run_process(self, task, payload, done, label):
-        """Run a service in a child process; cancel can kill it safely."""
+        """Run a service in a child process; cancel can kill it safely.
+
+        Jobs/results go through temp files, not stdout pipes: CCD/FEA results
+        can be many MB, and stderr warnings must not corrupt JSON.
+        """
         self.busy(label)
         self._proc_out = bytearray()
         p = QProcess(self)
         self.proc = p
+        td = Path(tempfile.mkdtemp(prefix="task_", dir=str(self._task_root())))
+        job_path = td / "job.json"
+        result_path = td / "result.json"
+        job_path.write_text(json.dumps(payload, default=str), encoding="utf-8")
         if getattr(sys, "frozen", False):
-            prog, args = sys.executable, ["--worker", task]
+            prog = sys.executable
+            args = ["--worker", task, "--job", str(job_path), "--result", str(result_path)]
         else:
-            prog, args = sys.executable, [str(Path(__file__).resolve()), "--worker", task]
-        p.readyReadStandardOutput.connect(lambda: self._proc_out.extend(bytes(p.readAllStandardOutput())))
-        p.readyReadStandardError.connect(lambda: self._proc_out.extend(bytes(p.readAllStandardError())))
+            prog = sys.executable
+            args = [str(Path(__file__).resolve()), "--worker", task,
+                    "--job", str(job_path), "--result", str(result_path)]
+        p.readyReadStandardOutput.connect(
+            lambda: self._proc_out.extend(bytes(p.readAllStandardOutput())))
+        p.readyReadStandardError.connect(
+            lambda: self._proc_out.extend(bytes(p.readAllStandardError())))
+
+        def cleanup():
+            self.proc = None
+            try:
+                for f in td.iterdir():
+                    f.unlink()
+                td.rmdir()
+            except Exception:
+                pass
 
         def finished(code, status):
-            self.ready(); self.proc = None
+            self.ready()
             raw = bytes(self._proc_out).decode("utf-8", "replace").strip()
-            if code != 0:
-                self.status("失败: " + label, BAD)
-                box = QMessageBox(QMessageBox.Critical, label, raw[-2000:] or "worker failed", QMessageBox.Ok, self)
-                box.setDetailedText(raw)
-                box.exec()
-                self._log("ERROR " + label + "\n" + raw)
-                return
+            data = None
             try:
-                data = json.loads(raw.splitlines()[-1]) if raw else {}
-                if "error" in data:
-                    raise RuntimeError(data["error"])
-                self.status("完成: " + label)
-                done(data)
+                if result_path.exists():
+                    data = json.loads(result_path.read_text(encoding="utf-8"))
             except Exception as e:
+                data = {"error": str(e)}
+            cleanup()
+            if code != 0 or (isinstance(data, dict) and "error" in data):
+                msg = (data or {}).get("error", raw[-2000:] or "worker failed")
                 self.status("失败: " + label, BAD)
-                box = QMessageBox(QMessageBox.Critical, label, str(e), QMessageBox.Ok, self)
+                box = QMessageBox(QMessageBox.Critical, label, str(msg)[:500], QMessageBox.Ok, self)
                 box.setDetailedText(raw[-4000:]); box.exec()
-                self._log("ERROR " + label + "\n" + raw[-4000:])
+                self._log("ERROR " + label + "\n" + str(msg) + "\n" + raw[-4000:])
+                return
+            if data is None:
+                data = {}
+            self.status("完成: " + label)
+            done(data)
 
         p.finished.connect(finished)
         p.start(prog, args)
-        p.write(json.dumps(payload, default=str).encode("utf-8"))
-        p.closeWriteChannel()
 
     def cancel_task(self):
         p = self.proc
@@ -681,8 +721,11 @@ class QtApp(QMainWindow):
         self.demo_log.setPlainText("shape=%s, frames=5, defocus=-2..2 waves" % (stack.shape,))
 
 
-def worker_main(task):
-    payload = json.loads(sys.stdin.read() or "{}")
+def worker_main(task, job_path=None, result_path=None):
+    if job_path:
+        payload = json.loads(Path(job_path).read_text(encoding="utf-8-sig"))
+    else:
+        payload = json.loads(sys.stdin.read() or "{}")
     if task == "ccd":
         from web.ccd_pipeline_service import run_ccd_pipeline
         r = run_ccd_pipeline(payload["c4"], payload["c8"], payload["c9"],
@@ -698,7 +741,8 @@ def worker_main(task):
         r = sens.case_detail(payload["cid"])
     elif task == "fea_upload":
         from products.sensitivity import service as sens
-        r = sens.custom_surface(payload["x"], payload["y"], payload["z"], 1250.0, 0.28, payload["label"])
+        r = sens.custom_surface(payload["x"], payload["y"], payload["z"],
+                                1250.0, 0.28, payload["label"])
     elif task == "s":
         from web import framework_service as fw
         r = fw.sensitivity()
@@ -707,7 +751,11 @@ def worker_main(task):
         r = fw.control(payload["target"])
     else:
         raise SystemExit("unknown task " + task)
-    print(json.dumps(r, ensure_ascii=False, default=str))
+    out = json.dumps(r, ensure_ascii=False, default=str)
+    if result_path:
+        Path(result_path).write_text(out, encoding="utf-8")
+    else:
+        print(out)
 
 
 def main():
@@ -715,9 +763,18 @@ def main():
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--smoke-test", action="store_true")
     ap.add_argument("--worker", default="")
+    ap.add_argument("--job", default="")
+    ap.add_argument("--result", default="")
     args = ap.parse_args()
     if args.worker:
-        worker_main(args.worker)
+        try:
+            worker_main(args.worker, args.job or None, args.result or None)
+        except Exception as e:
+            if args.result:
+                Path(args.result).write_text(
+                    json.dumps({"error": str(e) + "\n" + traceback.format_exc()}),
+                    encoding="utf-8")
+            raise
         return
     if args.self_test:
         print("Qt frontend imports OK")
