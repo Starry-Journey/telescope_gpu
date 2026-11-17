@@ -14,6 +14,7 @@ import csv
 import io
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -119,6 +120,9 @@ class QtApp(QMainWindow):
         self.last_pd = None
         self.last_fea = None
         self._workers = []
+        self.active_worker = None
+        self.log_path = ROOT / "results" / "qt_gui.log"
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
         central = QWidget(); root = QVBoxLayout(central)
         header = QHBoxLayout()
@@ -131,6 +135,11 @@ class QtApp(QMainWindow):
         self.badge = QLabel("READY"); self.badge.setStyleSheet(
             "background:#12351f;color:#3fb950;border:1px solid #1f6f3a;border-radius:11px;padding:3px 10px;font-weight:600;")
         header.addWidget(self.badge, 0, Qt.AlignTop)
+        self.cancel_btn = QPushButton("取消任务")
+        self.cancel_btn.setObjectName("Ghost")
+        self.cancel_btn.setEnabled(False)
+        self.cancel_btn.clicked.connect(self.cancel_task)
+        header.addWidget(self.cancel_btn, 0, Qt.AlignTop)
         root.addLayout(header)
 
         self.tabs = QTabWidget()
@@ -143,26 +152,60 @@ class QtApp(QMainWindow):
         root.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
         self.statusBar().showMessage("Ready")
+        self._log("Qt GUI started")
         self._refresh_cases()
 
     # ---------- helpers ----------
     def status(self, text, color=GOOD):
+        self._log(text)
         self.badge.setText(text.upper() if len(text) < 18 else text)
         self.badge.setStyleSheet(
             "background:#0b1117;color:%s;border:1px solid #2a3a4a;border-radius:11px;padding:3px 10px;font-weight:600;" % color)
         self.statusBar().showMessage(text)
 
+    def _log(self, text):
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write("%s  %s\n" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), text))
+        except Exception:
+            pass
+
+    def _show_stack(self, stack):
+        stack = np.asarray(stack, dtype=float)
+        if stack.ndim == 2:
+            stack = stack[None]
+        pix = _frames_png(stack)
+        self.ccd_img.setPixmap(pix.scaled(self.ccd_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.ccd_img.setToolTip("frames=%s" % (stack.shape,))
+
     def busy(self, text):
         self.status("运行中: " + text, WARN)
         self.tabs.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
 
     def ready(self):
         self.tabs.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.active_worker = None
+
+    def cancel_task(self):
+        w = self.active_worker
+        if w is None or not w.isRunning():
+            return
+        if QMessageBox.question(self, "取消任务",
+                                "强制终止当前任务？可能留下临时文件。") != QMessageBox.Yes:
+            return
+        w.requestInterruption()
+        w.terminate()
+        w.wait(1500)
+        self.ready()
+        self.status("已取消", WARN)
 
     def _run(self, fn, done, label):
         self.busy(label)
         w = Worker(fn)
         self._workers.append(w)
+        self.active_worker = w
 
         def finish(r):
             self.ready(); self.status("完成: " + label)
@@ -191,6 +234,14 @@ class QtApp(QMainWindow):
         if path:
             pix.save(path, "PNG"); self.status("已导出 " + path)
 
+    def _save_npy(self):
+        if self.psf is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "导出 NPY", "psf_stack.npy", "NumPy (*.npy)")
+        if path:
+            np.save(path, np.asarray(self.psf))
+            self.status("已导出 " + path)
+
     # ---------- CCD ----------
     def tab_ccd(self):
         w = QWidget(); lay = QHBoxLayout(w)
@@ -217,6 +268,7 @@ class QtApp(QMainWindow):
         rl.addWidget(self.ccd_img, 1)
         bar = QHBoxLayout()
         for t, fn in (("导出 PNG", lambda: self._save_pixmap(self.ccd_img, "ccd_psf.png")),
+                      ("导出 NPY", self._save_npy),
                       ("导出 metrics", lambda: self._save_json(self.last_ccd or {}, "ccd_metrics.json"))):
             b = QPushButton(t); b.setObjectName("Ghost"); b.clicked.connect(fn); bar.addWidget(b)
         rl.addLayout(bar)
@@ -240,7 +292,7 @@ class QtApp(QMainWindow):
     def _on_ccd(self, r):
         self.last_ccd = r
         self.psf = np.asarray(r["psf"], dtype=float); self.defocus = r["defocus"]
-        self.ccd_img.setPixmap(_png(r["psf_png"]).scaled(self.ccd_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._show_stack(self.psf)
         self.ccd_log.setPlainText("frames=%s shape=%s\nmetrics=%s" %
                                   (r["metrics"]["n_frames"], self.psf.shape, r["metrics"]))
 
@@ -259,7 +311,7 @@ class QtApp(QMainWindow):
     def _on_fits(self, r):
         self.last_ccd = r
         self.psf = np.asarray(r["psf"], dtype=float); self.defocus = r.get("defocus", self._defocus())
-        self.ccd_img.setPixmap(_png(r["psf_png"]).scaled(self.ccd_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._show_stack(self.psf)
         self.ccd_log.setPlainText("real FITS: %d frames, shape=%s, star=%s" % (len(self.psf), self.psf.shape, r.get("star")))
 
     # ---------- PD ----------
