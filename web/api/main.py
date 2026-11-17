@@ -41,9 +41,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ml.phase_torch import ForwardConfig, forward_stack
 from ml.traditional import forward_stack_numpy
-from ml.two_stage import bobyqa
 from pipeline.realistic import RealisticConfig, preview_frame, simulate_realistic
 from web import framework_service as fw
 from web.ccd_pipeline_service import run_ccd_pipeline
@@ -397,6 +395,7 @@ def health():
 @app.post("/api/simulate")
 def simulate(req: SimRequest):
     import torch
+    from ml.phase_torch import ForwardConfig, forward_stack
     cfg = ForwardConfig(n=64, noise_sigma=float(req.noise))
     coeff = torch.tensor([req.c4, req.c8, req.c9], dtype=torch.float32)
     stack = forward_stack(coeff, cfg, add_noise=True).detach().numpy()
@@ -413,6 +412,8 @@ def simulate(req: SimRequest):
 @app.post("/api/invert")
 def invert(req: SimRequest):
     import torch
+    from ml.phase_torch import ForwardConfig, forward_stack
+    from ml.two_stage import bobyqa
     truth = np.array([req.c4, req.c8, req.c9], dtype=float)
     cfg = ForwardConfig(n=64, noise_sigma=float(req.noise))
     stack = forward_stack(torch.tensor(truth, dtype=torch.float32), cfg,
