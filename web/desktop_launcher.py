@@ -3,7 +3,7 @@
 PyWebView's Windows backend needs pythonnet/.NET and did not survive
 PyInstaller freezing on this machine, so this launcher uses a small Tkinter
 control window plus the system browser.  It keeps the React GUI unchanged and
-adds native file dialogs.
+adds native file dialogs for FITS, ZMX and FEA CSV.
 
 Run:
     py -3.13 web/desktop_launcher.py
@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import csv
 import json
+import os
+import sys
 import threading
 import time
 import urllib.request
@@ -23,6 +26,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import uvicorn
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -42,59 +49,112 @@ def _post(path, obj):
         return json.loads(r.read())
 
 
-def _pick_and_upload(kind: str):
-    path = filedialog.askopenfilename(
-        title="Select FITS" if kind == "fits" else "Select ZMX",
-        filetypes=[("FITS", "*.fits *.fit")] if kind == "fits" else [("ZMX", "*.zmx")])
+def _b64(path: Path) -> str:
+    return base64.b64encode(path.read_bytes()).decode()
+
+
+def _pick_fits():
+    path = filedialog.askopenfilename(title="Select FITS",
+                                      filetypes=[("FITS", "*.fits *.fit")])
     if not path:
-        return None
-    raw = Path(path).read_bytes()
-    b64 = base64.b64encode(raw).decode()
-    if kind == "fits":
-        return _post("/api/ccd/upload", {"files": [{"name": Path(path).name, "data_b64": b64}]})
-    return _post("/api/zemax/inspect", {"name": Path(path).name, "data_b64": b64})
+        return None, " cancelled"
+    r = _post("/api/ccd/upload", {"files": [{"name": Path(path).name,
+                                             "data_b64": _b64(Path(path))}]})
+    return r, f"FITS: {Path(path).name}"
+
+
+def _pick_zmx():
+    path = filedialog.askopenfilename(title="Select ZMX",
+                                      filetypes=[("ZMX", "*.zmx")])
+    if not path:
+        return None, " cancelled"
+    r = _post("/api/zemax/inspect", {"name": Path(path).name,
+                                     "data_b64": _b64(Path(path))})
+    return r, f"ZMX: {Path(path).name}"
+
+
+def _pick_fea():
+    path = filedialog.askopenfilename(title="Select FEA CSV",
+                                      filetypes=[("CSV", "*.csv *.txt")])
+    if not path:
+        return None, " cancelled"
+    xs, ys, zs = [], [], []
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            xs.append(float(row["x_mm"]))
+            ys.append(float(row["y_mm"]))
+            zs.append(float(row["dz_nm"]))
+    r = _post("/api/fea/upload", {"x": xs, "y": ys, "z": zs,
+                                  "radius": 1250.0, "obscuration": 0.28,
+                                  "label": Path(path).stem})
+    return r, f"FEA: {Path(path).name} ({len(xs)} pts)"
+
+
+def _wait_server(timeout=15.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            with urllib.request.urlopen(URL + "api/health", timeout=2) as r:
+                return json.loads(r.read())
+        except Exception:
+            time.sleep(0.3)
+    return None
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
-    t = threading.Thread(target=_serve, daemon=True)
-    t.start()
-    time.sleep(1.2)
+    threading.Thread(target=_serve, daemon=True).start()
+    health = _wait_server()
     if args.self_test:
-        print(urllib.request.urlopen(URL + "api/health", timeout=10).read().decode())
+        print(json.dumps(health or {"ok": False}))
         return
+    if not health:
+        raise SystemExit("FastAPI did not start")
 
     root = tk.Tk()
     root.title("Telescope Engineering Launcher")
-    root.geometry("420x260")
-    tk.Label(root, text="Telescope Engineering", font=("Segoe UI", 14, "bold")).pack(pady=10)
+    root.geometry("520x420")
+    tk.Label(root, text="Telescope Engineering", font=("Segoe UI", 14, "bold")).pack(pady=8)
     tk.Label(root, text=URL, fg="#555").pack()
     status = tk.StringVar(value="server running")
-    tk.Label(root, textvariable=status, fg="#2a7").pack(pady=8)
+    tk.Label(root, textvariable=status, fg="#2a7").pack(pady=4)
+    log = tk.Text(root, height=10, width=64)
+    log.pack(padx=10, pady=6)
+    log.insert("end", "Desktop launcher ready.\n")
+
+    def add_log(msg):
+        log.insert("end", msg + "\n")
+        log.see("end")
+        status.set(msg)
 
     def open_gui():
         webbrowser.open(URL)
 
-    def pick_fits():
+    def run_picker(fn):
         try:
-            r = _pick_and_upload("fits")
-            status.set("FITS ok" if r else "cancelled")
+            r, msg = fn()
+            add_log(msg if r or "cancelled" in msg else "failed")
+            if r and "ZMX" in msg:
+                add_log(f"surfaces={len(r.get('model', {}).get('surfaces', []))}")
         except Exception as e:
-            messagebox.showerror("FITS", str(e))
+            messagebox.showerror("Error", str(e))
+            add_log("ERROR: " + str(e))
 
-    def pick_zmx():
+    def open_data():
+        p = Path(__file__).resolve().parents[1] / "data"
         try:
-            r = _pick_and_upload("zmx")
-            status.set("ZMX ok" if r else "cancelled")
-        except Exception as e:
-            messagebox.showerror("ZMX", str(e))
+            os.startfile(str(p))  # Windows
+        except Exception:
+            webbrowser.open(p.as_uri())
 
-    tk.Button(root, text="打开 Web GUI", command=open_gui, width=24).pack(pady=4)
-    tk.Button(root, text="选择并上传 FITS", command=pick_fits, width=24).pack(pady=4)
-    tk.Button(root, text="选择 ZMX", command=pick_zmx, width=24).pack(pady=4)
-    tk.Button(root, text="退出", command=root.destroy, width=24).pack(pady=4)
+    tk.Button(root, text="打开 Web GUI", command=open_gui, width=30).pack(pady=3)
+    tk.Button(root, text="选择并上传 FITS", command=lambda: run_picker(_pick_fits), width=30).pack(pady=3)
+    tk.Button(root, text="选择 ZMX", command=lambda: run_picker(_pick_zmx), width=30).pack(pady=3)
+    tk.Button(root, text="选择 FEA CSV 并上传", command=lambda: run_picker(_pick_fea), width=30).pack(pady=3)
+    tk.Button(root, text="打开 data 目录", command=open_data, width=30).pack(pady=3)
+    tk.Button(root, text="退出", command=root.destroy, width=30).pack(pady=3)
     root.mainloop()
 
 
