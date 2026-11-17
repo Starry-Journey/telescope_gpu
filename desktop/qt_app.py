@@ -472,7 +472,7 @@ class QtApp(QMainWindow):
         noise, stars, df = self.noise.value(), self.stars.value(), self._defocus()
 
         def fn():
-            from web.ccd_pipeline_service import run_ccd_pipeline
+            from products.ccd.service import run_ccd_pipeline
             return run_ccd_pipeline(c4, c8, c9, noise, stars, df)
         self._run_process("ccd", {"c4": c4, "c8": c8, "c9": c9,
                                   "noise": noise, "stars": stars, "defocus": df},
@@ -770,27 +770,28 @@ def worker_main(task, job_path=None, result_path=None):
     else:
         payload = json.loads(sys.stdin.read() or "{}")
     if task == "ccd":
-        from web.ccd_pipeline_service import run_ccd_pipeline
+        from products.ccd.service import run_ccd_pipeline
         r = run_ccd_pipeline(payload["c4"], payload["c8"], payload["c9"],
                              payload["noise"], payload["stars"], payload["defocus"])
     elif task == "fits":
-        from web.fits_pipeline_service import run_fits_pipeline
+        from products.ccd.fits_service import run_fits_pipeline
         r = run_fits_pipeline(payload["files"], payload.get("defocus"))
     elif task == "pd":
-        from web.pd_service import invert_psf
+        from products.pd.service import invert_psf
         r = invert_psf(payload["psf"], payload["defocus"], None)
     elif task == "fea_case":
         from products.sensitivity import service as sens
         r = sens.case_detail(payload["cid"])
     elif task == "fea_upload":
         from products.sensitivity import service as sens
+        from products.instrument import M1_OBSCURATION, M1_RADIUS_MM
         r = sens.custom_surface(payload["x"], payload["y"], payload["z"],
-                                1250.0, 0.28, payload["label"])
+                                M1_RADIUS_MM, M1_OBSCURATION, payload["label"])
     elif task == "s":
-        from web import framework_service as fw
+        from products.control import service as fw
         r = fw.sensitivity()
     elif task == "u":
-        from web import framework_service as fw
+        from products.control import service as fw
         r = fw.control(payload["target"])
     else:
         raise SystemExit("unknown task " + task)
@@ -824,7 +825,7 @@ def main():
         print("Qt frontend imports OK")
         return
     if args.smoke_test:
-        from web.ccd_pipeline_service import run_ccd_pipeline
+        from products.ccd.service import run_ccd_pipeline
         r = run_ccd_pipeline(0.3, 0.1, -0.05, 2.0, 8, [-1, 0, 1])
         print("smoke frames", len(r["psf"]), "shape", np.asarray(r["psf"]).shape)
         return

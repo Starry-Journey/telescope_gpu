@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 from PySide6.QtWidgets import QApplication
 from desktop.qt_app import QtApp
 from products.sensitivity import service as sens
-from web.ccd_pipeline_service import run_ccd_pipeline
+from products.ccd.service import run_ccd_pipeline
 
 app = QApplication([])
 w = QtApp()
