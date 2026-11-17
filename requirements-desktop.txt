@@ -1,0 +1,2 @@
+# Desktop shell only (optional; Web GUI works without it).
+pywebview>=5.0

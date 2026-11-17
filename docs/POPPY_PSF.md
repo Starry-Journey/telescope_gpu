@@ -81,3 +81,13 @@ defocus +1 wave:
 
 FWHM 差 3.5 倍，说明两者**像素尺度/OTF 采样**不同；SSE 小只是因为能量被摊开，
 不能据此说模型一致。POPPY 只用于外部检查，不接入求解器。
+
+## 7. 采样对齐尝试
+
+`scripts/poppy_align.py` 按 FWHM 比例重采样 POPPY（sampling-only）：
+
+- 0/1/2 wave 的缩放约 0.106/0.282/0.303；
+- 重采样后 PD 仍在 Z8/Z9 边界，cost 1.27e-6；
+- 说明仅对齐像素尺度不够，pupil/OTF/遮拦归一化仍不同。
+
+因此 POPPY 仍只做外部对照，不进入求解器。

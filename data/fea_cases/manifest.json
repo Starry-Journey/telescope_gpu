@@ -229,6 +229,38 @@
       "assumption": "simplified plate, fixed 36 bottom + 24 side supports; not design-spec",
       "synthetic": false,
       "model": "calculix-simplified"
+    },
+    {
+      "id": "M1_distributed_0deg",
+      "surface": "M1",
+      "load_case": "CalculiX distributed springs, gravity 0 deg",
+      "file": "calculix_distributed/m1_0deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 6.4873,
+      "actual_rms_nm": 3.23,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "synthetic": false,
+      "model": "distributed-spring, simplified plate",
+      "assumption": "elastic foundation, not real whiffletree/contact"
+    },
+    {
+      "id": "M1_distributed_90deg",
+      "surface": "M1",
+      "load_case": "CalculiX distributed springs, gravity 90 deg",
+      "file": "calculix_distributed/m1_90deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 23.199,
+      "actual_rms_nm": 8.9,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "synthetic": false,
+      "model": "distributed-spring, simplified plate",
+      "assumption": "elastic foundation, not real whiffletree/contact"
     }
   ]
 }

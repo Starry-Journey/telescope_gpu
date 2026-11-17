@@ -79,6 +79,10 @@ def write_inp(path: Path, direction: str, support: str = "fixed", k: float = 1.0
     for n in range(24):
         side.append(nearest(index, R_OUT, 2 * math.pi * n / 24, 2))
     top = [index[(i, j, NZ - 1)] for j in range(NT) for i in range(NR)]
+    if support == "distributed":
+        # elastic foundation: every bottom/top-ring node, stiffness per node
+        bottom = [index[(i, j, 0)] for j in range(NT) for i in range(NR)]
+        side = [index[(NR - 1, j, NZ // 2)] for j in range(NT)]
     bottom = sorted(set(bottom)); side = sorted(set(side)); top = sorted(set(top))
 
     with open(path, "w", encoding="ascii") as f:
@@ -93,25 +97,27 @@ def write_inp(path: Path, direction: str, support: str = "fixed", k: float = 1.0
         f.write("*NSET, NSET=BOT\n" + ",\n".join(map(str, bottom)) + "\n")
         f.write("*NSET, NSET=SIDE\n" + ",\n".join(map(str, side)) + "\n")
         f.write("*NSET, NSET=TOP\n" + ",\n".join(map(str, top)) + "\n")
-        if support == "spring":
+        if support in ("spring", "distributed"):
             # SPRING1 to ground: z for bottom, global x/y for side (side pads).
             f.write("*ELEMENT, TYPE=SPRING1, ELSET=BOTSPR\n")
             next_eid = len(elems) + 1
             for nid in bottom:
                 f.write("%d, %d\n" % (next_eid, nid)); next_eid += 1
-            f.write("*SPRING, ELSET=BOTSPR\n3\n%.6e\n" % k)
+            kb = k / max(len(bottom), 1) if support == "distributed" else k
+            f.write("*SPRING, ELSET=BOTSPR\n3\n%.6e\n" % kb)
             f.write("*ELEMENT, TYPE=SPRING1, ELSET=SIDESPRX\n")
             for nid in side:
                 f.write("%d, %d\n" % (next_eid, nid)); next_eid += 1
-            f.write("*SPRING, ELSET=SIDESPRX\n1\n%.6e\n" % k_side)
+            ks = k_side / max(len(side), 1) if support == "distributed" else k_side
+            f.write("*SPRING, ELSET=SIDESPRX\n1\n%.6e\n" % ks)
             f.write("*ELEMENT, TYPE=SPRING1, ELSET=SIDESPRY\n")
             for nid in side:
                 f.write("%d, %d\n" % (next_eid, nid)); next_eid += 1
-            f.write("*SPRING, ELSET=SIDESPRY\n2\n%.6e\n" % k_side)
+            f.write("*SPRING, ELSET=SIDESPRY\n2\n%.6e\n" % ks)
         f.write("*MATERIAL, NAME=ZERODUR\n*ELASTIC\n90000., 0.24\n*DENSITY\n2.53e-9\n")
         f.write("*SOLID SECTION, ELSET=EALL, MATERIAL=ZERODUR\n")
         f.write("*STEP\n*STATIC\n")
-        if support == "spring":
+        if support in ("spring", "distributed"):
             pass
         else:
             f.write("*BOUNDARY\nBOT,1,3\nSIDE,1,2\n")
@@ -162,7 +168,7 @@ def main():
     ap.add_argument("--out", default="data/fea_cases/calculix")
     ap.add_argument("--ccx", default="ccx")
     ap.add_argument("--run", action="store_true")
-    ap.add_argument("--support", choices=("fixed", "spring"), default="fixed")
+    ap.add_argument("--support", choices=("fixed", "spring", "distributed"), default="fixed")
     ap.add_argument("--k", type=float, default=1.0e7)
     ap.add_argument("--k-side", type=float, default=1.0e6)
     args = ap.parse_args()
