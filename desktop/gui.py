@@ -26,7 +26,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import Qt, QThread, Signal, QProcess
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QDesktopServices
+from PySide6.QtCore import QUrl
+from desktop.tasks import TaskRunner
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -144,6 +146,12 @@ class QtApp(QMainWindow):
         self.frames = []
         self._workers = []
         self.active_worker = None
+        self.runner = TaskRunner(self._task_root(), self)
+        self._task_done = None
+        self._task_label = ""
+        self.runner.finished.connect(self._on_task_done)
+        self.runner.failed.connect(self._on_task_failed)
+        self.runner.cancelled.connect(self._on_task_cancelled)
         self.proc = None
         self._proc_out = bytearray()
         if getattr(sys, "frozen", False):
@@ -217,7 +225,7 @@ class QtApp(QMainWindow):
         copy.clicked.connect(lambda: (QApplication.clipboard().setText(te.toPlainText()),
                                       self.status("日志已复制")))
         op = QPushButton("打开日志文件"); op.setObjectName("Ghost")
-        op.clicked.connect(lambda: os.startfile(str(self.log_path)))
+        op.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.log_path))))
         row.addWidget(copy); row.addWidget(op); row.addStretch(1)
         lay.addLayout(row)
         d.exec()
@@ -264,82 +272,50 @@ class QtApp(QMainWindow):
         raise RuntimeError("no writable qt_tasks directory")
 
     def _run_process(self, task, payload, done, label):
-        """Run a service in a child process; cancel can kill it safely.
-
-        Jobs/results go through temp files, not stdout pipes: CCD/FEA results
-        can be many MB, and stderr warnings must not corrupt JSON.
-        """
+        if self.runner.busy():
+            return
+        self._task_done = done
+        self._task_label = label
         self.busy(label)
-        self._cancelled = False
-        self._proc_out = bytearray()
-        p = QProcess(self)
-        p.setWorkingDirectory(str(ROOT))
-        self.proc = p
-        td = Path(tempfile.mkdtemp(prefix="task_", dir=str(self._task_root())))
-        job_path = td / "job.json"
-        result_path = td / "result.json"
-        job_path.write_text(json.dumps(payload, default=str), encoding="utf-8")
-        if getattr(sys, "frozen", False):
-            prog = sys.executable
-            args = ["--worker", task, "--job", str(job_path), "--result", str(result_path)]
-        else:
-            prog = sys.executable
-            args = [str(ROOT / "desktop" / "qt_app.py"), "--worker", task,
-                    "--job", str(job_path), "--result", str(result_path)]
-        p.readyReadStandardOutput.connect(
-            lambda: self._proc_out.extend(bytes(p.readAllStandardOutput())))
-        p.readyReadStandardError.connect(
-            lambda: self._proc_out.extend(bytes(p.readAllStandardError())))
-
-        def cleanup():
-            self.proc = None
-            try:
-                for f in td.iterdir():
-                    f.unlink()
-                td.rmdir()
-            except Exception:
-                pass
-
-        def finished(code, status):
+        try:
+            self.runner.start(task, payload)
+        except Exception as e:
             self.ready()
-            if getattr(self, "_cancelled", False):
-                self._cancelled = False
-                return
-            raw = bytes(self._proc_out).decode("utf-8", "replace").strip()
-            data = None
-            try:
-                if result_path.exists():
-                    data = json.loads(result_path.read_text(encoding="utf-8"))
-            except Exception as e:
-                data = {"error": str(e)}
-            cleanup()
-            if code != 0 or (isinstance(data, dict) and "error" in data):
-                msg = (data or {}).get("error", raw[-2000:] or "worker failed")
-                self.status("失败: " + label, BAD)
-                box = QMessageBox(QMessageBox.Critical, label, str(msg)[:500], QMessageBox.Ok, self)
-                box.setDetailedText(raw[-4000:]); box.exec()
-                self._log("ERROR " + label + "\n" + str(msg) + "\n" + raw[-4000:])
-                return
-            if data is None:
-                data = {}
-            self.status("完成: " + label)
-            done(data)
+            self.status("失败: " + label, BAD)
+            QMessageBox.critical(self, label, str(e))
 
-        p.finished.connect(finished)
-        p.start(prog, args)
+    def _on_task_done(self, data):
+        done = self._task_done
+        label = self._task_label
+        self._task_done = None
+        self.ready()
+        self.status("完成: " + label)
+        if done:
+            done(data or {})
+
+    def _on_task_failed(self, msg):
+        label = self._task_label or "任务"
+        self._task_done = None
+        self.ready()
+        self.status("失败: " + label, BAD)
+        self._log("ERROR " + label + "\n" + msg)
+        box = QMessageBox(QMessageBox.Critical, label, str(msg)[:500], QMessageBox.Ok, self)
+        box.setDetailedText(msg)
+        box.exec()
+
+    def _on_task_cancelled(self):
+        label = self._task_label or "任务"
+        self._task_done = None
+        self.ready()
+        self.status("已取消: " + label, WARN)
 
     def cancel_task(self):
-        p = self.proc
-        if p is None or p.state() == QProcess.NotRunning:
+        if not self.runner.busy():
             return
         if QMessageBox.question(self, "取消任务",
                                 "终止当前子进程？服务计算会立即停止。") != QMessageBox.Yes:
             return
-        self._cancelled = True
-        p.kill()
-        p.waitForFinished(1500)
-        self.ready()
-        self.status("已取消", WARN)
+        self.runner.cancel()
 
     def _run(self, fn, done, label):
         self.busy(label)
@@ -519,10 +495,8 @@ class QtApp(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Select FITS", "", "FITS (*.fits *.fit)")
         if not files:
             return
-        payload = [{"name": Path(p).name, "data_b64": base64.b64encode(Path(p).read_bytes()).decode()} for p in files]
         df = self._defocus()
-
-        self._run_process("fits", {"files": payload, "defocus": df},
+        self._run_process("fits_paths", {"paths": files, "defocus": df},
                           self._on_fits, "真实 FITS")
 
     def _on_fits(self, r):

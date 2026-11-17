@@ -23,7 +23,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       - name: Product services (numpy-only)
-        run: python3 -m unittest discover -s web/tests -v
+        run: python3 -m unittest discover -s products/tests -v
 
       - name: Worker dispatch / no-Qt worker
         run: python3 -m unittest discover -s desktop/tests -v

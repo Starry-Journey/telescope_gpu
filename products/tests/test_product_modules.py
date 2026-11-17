@@ -2,7 +2,7 @@ import unittest
 
 from products.ccd.service import run_ccd_pipeline
 from products.pd.service import invert_psf
-from web import sensitivity_matrix_service as sm
+from products.sensitivity import matrix_service as sm
 
 
 class ProductModulesTest(unittest.TestCase):

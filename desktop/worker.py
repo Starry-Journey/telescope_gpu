@@ -16,9 +16,16 @@ def run_worker(task, job_path=None, result_path=None):
         from products.ccd.service import run_ccd_pipeline
         r = run_ccd_pipeline(payload["c4"], payload["c8"], payload["c9"],
                              payload["noise"], payload["stars"], payload["defocus"])
-    elif task == "fits":
+    elif task in ("fits", "fits_paths"):
         from products.ccd.fits_service import run_fits_pipeline
-        r = run_fits_pipeline(payload["files"], payload.get("defocus"))
+        if task == "fits_paths":
+            import base64
+            files = [{"name": Path(p).name,
+                      "data_b64": base64.b64encode(Path(p).read_bytes()).decode()}
+                     for p in payload["paths"]]
+        else:
+            files = payload["files"]
+        r = run_fits_pipeline(files, payload.get("defocus"))
     elif task == "pd":
         from products.pd.service import invert_psf
         r = invert_psf(payload["psf"], payload["defocus"], None)

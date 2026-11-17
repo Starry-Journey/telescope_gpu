@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from web.job_queue import JobStore
+from products.jobs.store import JobStore
 
 
 class JobQueueTest(unittest.TestCase):
