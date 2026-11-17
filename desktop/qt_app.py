@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QProcess
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
@@ -125,6 +125,8 @@ class QtApp(QMainWindow):
         self.frames = []
         self._workers = []
         self.active_worker = None
+        self.proc = None
+        self._proc_out = bytearray()
         self.log_path = ROOT / "results" / "qt_gui.log"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -220,19 +222,60 @@ class QtApp(QMainWindow):
         self.tabs.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.active_worker = None
+        self.proc = None
+        self._proc_out = bytearray()
+
+    def _run_process(self, task, payload, done, label):
+        """Run a service in a child process; cancel can kill it safely."""
+        self.busy(label)
+        self._proc_out = bytearray()
+        p = QProcess(self)
+        self.proc = p
+        if getattr(sys, "frozen", False):
+            prog, args = sys.executable, ["--worker", task]
+        else:
+            prog, args = sys.executable, [str(Path(__file__).resolve()), "--worker", task]
+        p.readyReadStandardOutput.connect(lambda: self._proc_out.extend(bytes(p.readAllStandardOutput())))
+        p.readyReadStandardError.connect(lambda: self._proc_out.extend(bytes(p.readAllStandardError())))
+
+        def finished(code, status):
+            self.ready(); self.proc = None
+            raw = bytes(self._proc_out).decode("utf-8", "replace").strip()
+            if code != 0:
+                self.status("失败: " + label, BAD)
+                box = QMessageBox(QMessageBox.Critical, label, raw[-2000:] or "worker failed", QMessageBox.Ok, self)
+                box.setDetailedText(raw)
+                box.exec()
+                self._log("ERROR " + label + "\n" + raw)
+                return
+            try:
+                data = json.loads(raw.splitlines()[-1]) if raw else {}
+                if "error" in data:
+                    raise RuntimeError(data["error"])
+                self.status("完成: " + label)
+                done(data)
+            except Exception as e:
+                self.status("失败: " + label, BAD)
+                box = QMessageBox(QMessageBox.Critical, label, str(e), QMessageBox.Ok, self)
+                box.setDetailedText(raw[-4000:]); box.exec()
+                self._log("ERROR " + label + "\n" + raw[-4000:])
+
+        p.finished.connect(finished)
+        p.start(prog, args)
+        p.write(json.dumps(payload, default=str).encode("utf-8"))
+        p.closeWriteChannel()
 
     def cancel_task(self):
-        w = self.active_worker
-        if w is None or not w.isRunning():
+        p = self.proc
+        if p is None or p.state() == QProcess.NotRunning:
             return
         if QMessageBox.question(self, "取消任务",
-                                "强制终止当前任务？可能留下临时文件。") != QMessageBox.Yes:
+                                "终止当前子进程？服务计算会立即停止。") != QMessageBox.Yes:
             return
-        # Cooperative: mark cancellation; current native C/NLopt step cannot be
-        # interrupted safely, so we do NOT terminate the QThread.
-        w.requestInterruption()
-        self.cancel_btn.setEnabled(False)
-        self.status("已请求取消，当前步骤结束后停止", WARN)
+        p.kill()
+        p.waitForFinished(1500)
+        self.ready()
+        self.status("已取消", WARN)
 
     def _run(self, fn, done, label):
         self.busy(label)
@@ -372,7 +415,9 @@ class QtApp(QMainWindow):
         def fn():
             from web.ccd_pipeline_service import run_ccd_pipeline
             return run_ccd_pipeline(c4, c8, c9, noise, stars, df)
-        self._run(fn, self._on_ccd, "CCD 合成")
+        self._run_process("ccd", {"c4": c4, "c8": c8, "c9": c9,
+                                  "noise": noise, "stars": stars, "defocus": df},
+                          self._on_ccd, "CCD 合成")
 
     def _populate_frames(self, frames):
         self.frames = frames or []
@@ -413,10 +458,8 @@ class QtApp(QMainWindow):
         payload = [{"name": Path(p).name, "data_b64": base64.b64encode(Path(p).read_bytes()).decode()} for p in files]
         df = self._defocus()
 
-        def fn():
-            from web.fits_pipeline_service import run_fits_pipeline
-            return run_fits_pipeline(payload, df)
-        self._run(fn, self._on_fits, "真实 FITS")
+        self._run_process("fits", {"files": payload, "defocus": df},
+                          self._on_fits, "真实 FITS")
 
     def _on_fits(self, r):
         self.last_ccd = r
@@ -444,10 +487,8 @@ class QtApp(QMainWindow):
             return
         psf, df = self.psf.tolist(), self.defocus
 
-        def fn():
-            from web.pd_service import invert_psf
-            return invert_psf(psf, df, None)
-        self._run(fn, self._on_pd, "PD 反演")
+        self._run_process("pd", {"psf": psf, "defocus": df},
+                          self._on_pd, "PD 反演")
 
     def _on_pd(self, r):
         self.last_pd = r
@@ -495,10 +536,7 @@ class QtApp(QMainWindow):
     def load_case(self, cid):
         if not cid:
             return
-        def fn():
-            from products.sensitivity import service as sens
-            return sens.case_detail(cid)
-        self._run(fn, self._on_fea, "加载 FEA")
+        self._run_process("fea_case", {"cid": cid}, self._on_fea, "加载 FEA")
 
     def _on_fea(self, d):
         self.last_fea = d
@@ -518,10 +556,9 @@ class QtApp(QMainWindow):
                     xs.append(float(row["x_mm"])); ys.append(float(row["y_mm"])); zs.append(float(row["dz_nm"]))
         except Exception as e:
             QMessageBox.critical(self, "FEA", str(e)); return
-        def fn():
-            from products.sensitivity import service as sens
-            return sens.custom_surface(xs, ys, zs, 1250.0, 0.28, Path(path).stem)
-        self._run(fn, self._on_fea, "上传 FEA")
+        self._run_process("fea_upload", {"x": xs, "y": ys, "z": zs,
+                                         "label": Path(path).stem},
+                          self._on_fea, "上传 FEA")
 
     # ---------- ZMX ----------
     def tab_zmx(self):
@@ -576,10 +613,7 @@ class QtApp(QMainWindow):
         return w
 
     def run_s(self):
-        def fn():
-            from web import framework_service as fw
-            return fw.sensitivity()
-        self._run(fn, self._on_s, "计算 S")
+        self._run_process("s", {}, self._on_s, "计算 S")
 
     def _on_s(self, d):
         self.last_s = d
@@ -608,10 +642,8 @@ class QtApp(QMainWindow):
             self.ctrl_log.append("heatmap error: " + str(e))
 
     def run_u(self):
-        def fn():
-            from web import framework_service as fw
-            return fw.control([0.23377, -0.09266, 0.04633])
-        self._run(fn, self._on_u, "求解 u")
+        self._run_process("u", {"target": [0.23377, -0.09266, 0.04633]},
+                          self._on_u, "求解 u")
 
     def _on_u(self, d):
         self.ctrl_log.setPlainText("u=%s\nresidual=%s" % (d.get("control"), d.get("residual")))
@@ -649,11 +681,44 @@ class QtApp(QMainWindow):
         self.demo_log.setPlainText("shape=%s, frames=5, defocus=-2..2 waves" % (stack.shape,))
 
 
+def worker_main(task):
+    payload = json.loads(sys.stdin.read() or "{}")
+    if task == "ccd":
+        from web.ccd_pipeline_service import run_ccd_pipeline
+        r = run_ccd_pipeline(payload["c4"], payload["c8"], payload["c9"],
+                             payload["noise"], payload["stars"], payload["defocus"])
+    elif task == "fits":
+        from web.fits_pipeline_service import run_fits_pipeline
+        r = run_fits_pipeline(payload["files"], payload.get("defocus"))
+    elif task == "pd":
+        from web.pd_service import invert_psf
+        r = invert_psf(payload["psf"], payload["defocus"], None)
+    elif task == "fea_case":
+        from products.sensitivity import service as sens
+        r = sens.case_detail(payload["cid"])
+    elif task == "fea_upload":
+        from products.sensitivity import service as sens
+        r = sens.custom_surface(payload["x"], payload["y"], payload["z"], 1250.0, 0.28, payload["label"])
+    elif task == "s":
+        from web import framework_service as fw
+        r = fw.sensitivity()
+    elif task == "u":
+        from web import framework_service as fw
+        r = fw.control(payload["target"])
+    else:
+        raise SystemExit("unknown task " + task)
+    print(json.dumps(r, ensure_ascii=False, default=str))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--smoke-test", action="store_true")
+    ap.add_argument("--worker", default="")
     args = ap.parse_args()
+    if args.worker:
+        worker_main(args.worker)
+        return
     if args.self_test:
         print("Qt frontend imports OK")
         return
