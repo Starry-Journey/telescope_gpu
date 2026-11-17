@@ -8,6 +8,7 @@ adds native file dialogs for FITS, ZMX and FEA CSV.
 Run:
     py -3.13 web/desktop_launcher.py
     py -3.13 web/desktop_launcher.py --self-test
+    py -3.13 web/desktop_launcher.py --no-browser
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import base64
 import csv
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -36,9 +38,51 @@ PORT = 8765
 URL = f"http://{HOST}:{PORT}/"
 
 
-def _serve():
+def _serve(port: int):
     from web.api.main import app
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    uvicorn.run(app, host=HOST, port=port, log_level="warning")
+
+
+def _health(port: int, timeout: float = 1.5):
+    try:
+        with urllib.request.urlopen(f"http://{HOST}:{port}/api/health", timeout=timeout) as r:
+            return json.loads(r.read())
+    except Exception:
+        return None
+
+
+def _free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((HOST, port))
+            return True
+        except OSError:
+            return False
+
+
+def _find_port(start: int) -> int:
+    for p in range(start, start + 20):
+        if _free(p):
+            return p
+    raise RuntimeError("no free loopback port")
+
+
+def _start_server(start_port: int):
+    """Reuse an existing healthy server or start one on the first free port."""
+    global PORT, URL
+    for p in range(start_port, start_port + 10):
+        if _health(p):
+            PORT, URL = p, f"http://{HOST}:{p}/"
+            return p
+    PORT = _find_port(start_port)
+    URL = f"http://{HOST}:{PORT}/"
+    threading.Thread(target=_serve, args=(PORT,), daemon=True).start()
+    for _ in range(30):
+        if _health(PORT):
+            return PORT
+        time.sleep(0.3)
+    raise RuntimeError(f"FastAPI did not start on {URL}")
 
 
 def _post(path, obj):
@@ -90,38 +134,28 @@ def _pick_fea():
     return r, f"FEA: {Path(path).name} ({len(xs)} pts)"
 
 
-def _wait_server(timeout=15.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        try:
-            with urllib.request.urlopen(URL + "api/health", timeout=2) as r:
-                return json.loads(r.read())
-        except Exception:
-            time.sleep(0.3)
-    return None
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
-    threading.Thread(target=_serve, daemon=True).start()
-    health = _wait_server()
+
+    port = _start_server(args.port)
     if args.self_test:
-        print(json.dumps(health or {"ok": False}))
+        print(json.dumps(_health(port) or {"ok": False}))
         return
-    if not health:
-        raise SystemExit("FastAPI did not start")
 
     root = tk.Tk()
     root.title("Telescope Engineering Launcher")
-    root.geometry("520x420")
+    root.geometry("560x460")
     tk.Label(root, text="Telescope Engineering", font=("Segoe UI", 14, "bold")).pack(pady=8)
     tk.Label(root, text=URL, fg="#555").pack()
     status = tk.StringVar(value="server running")
     tk.Label(root, textvariable=status, fg="#2a7").pack(pady=4)
-    log = tk.Text(root, height=10, width=64)
+    log = tk.Text(root, height=10, width=68)
     log.pack(padx=10, pady=6)
+    log.insert("end", f"Server: {URL}\n")
     log.insert("end", "Desktop launcher ready.\n")
 
     def add_log(msg):
@@ -131,6 +165,11 @@ def main():
 
     def open_gui():
         webbrowser.open(URL)
+
+    def copy_url():
+        root.clipboard_clear()
+        root.clipboard_append(URL)
+        add_log("URL copied")
 
     def run_picker(fn):
         try:
@@ -150,11 +189,14 @@ def main():
             webbrowser.open(p.as_uri())
 
     tk.Button(root, text="打开 Web GUI", command=open_gui, width=30).pack(pady=3)
+    tk.Button(root, text="复制地址", command=copy_url, width=30).pack(pady=3)
     tk.Button(root, text="选择并上传 FITS", command=lambda: run_picker(_pick_fits), width=30).pack(pady=3)
     tk.Button(root, text="选择 ZMX", command=lambda: run_picker(_pick_zmx), width=30).pack(pady=3)
     tk.Button(root, text="选择 FEA CSV 并上传", command=lambda: run_picker(_pick_fea), width=30).pack(pady=3)
     tk.Button(root, text="打开 data 目录", command=open_data, width=30).pack(pady=3)
     tk.Button(root, text="退出", command=root.destroy, width=30).pack(pady=3)
+    if not args.no_browser:
+        root.after(900, open_gui)
     root.mainloop()
 
 
