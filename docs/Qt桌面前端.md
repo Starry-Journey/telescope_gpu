@@ -98,3 +98,26 @@ Unblock-File dist\TelescopeEngineeringQtNative\TelescopeEngineeringQtNative.exe
 ```
 
 或弹窗点“运行”。彻底去掉需要代码签名证书；本地自签名不保证消除 SmartScreen。
+
+## 12. Worker 拆分（P5-3）
+
+```text
+desktop/qt_app.py   薄入口：--worker 时只 import desktop.worker
+desktop/gui.py      PySide6 QtApp/页签
+desktop/worker.py   服务任务，不 import PySide6
+```
+
+验证：
+
+```python
+import desktop.worker
+assert "PySide6" not in sys.modules
+```
+
+QProcess 仍启动同一 EXE：
+
+```text
+EXE --worker task --job ... --result ...
+```
+
+worker 分支不再加载 Qt，启动/内存更低。

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtWidgets import QApplication
-from desktop.qt_app import QtApp
+from desktop.gui import QtApp
 from products.sensitivity import service as sens
 from products.ccd.service import run_ccd_pipeline
 

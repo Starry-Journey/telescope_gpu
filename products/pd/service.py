@@ -14,34 +14,7 @@ import nlopt
 from ml.traditional import forward_psf_numpy
 
 
-def _normalise(stack: np.ndarray) -> np.ndarray:
-    s = stack.sum(axis=(1, 2), keepdims=True)
-    return stack / np.maximum(s, 1e-12)
-
-
-def _objective(data: np.ndarray, defocus: Sequence[float], n: int):
-    def fun(x, grad):
-        model = np.stack([forward_psf_numpy(x, float(d), n=n) for d in defocus], axis=0)
-        model = _normalise(model)
-        return float(np.mean((model - data) ** 2))
-    return fun
-
-
-def _solve_one(x0: np.ndarray, data: np.ndarray, defocus: Sequence[float],
-               n: int, maxeval: int):
-    opt = nlopt.opt(nlopt.LN_BOBYQA, 3)
-    opt.set_lower_bounds([-1.5, -0.5, -0.5])
-    opt.set_upper_bounds([1.5, 0.5, 0.5])
-    opt.set_min_objective(_objective(data, defocus, n))
-    opt.set_maxeval(int(maxeval))
-    opt.set_ftol_rel(1e-9)
-    opt.set_xtol_rel(1e-7)
-    opt.set_initial_step(0.1)
-    try:
-        x = opt.optimize(np.asarray(x0, dtype=float))
-    except nlopt.RoundoffLimited:
-        x = np.asarray(x0, dtype=float)
-    return np.asarray(x, dtype=float), int(opt.get_numevals()), float(opt.last_optimum_value())
+from products.pd.core import normalise as _normalise, solve_one as _solve_one
 
 
 def invert_psf(psf: List[List[List[float]]], defocus: Sequence[float],
