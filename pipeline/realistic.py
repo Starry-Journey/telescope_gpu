@@ -285,13 +285,13 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
             raw += left + right + up + down
 
         raw = np.clip(raw, 0, cfg.full_well)
+        world = wcs.pixel_to_world(*undistort_pixels(
+            np.array([tx]), np.array([ty]), cfg))
+        ra = float(np.ravel(world.icrs.ra.deg)[0])
+        dec = float(np.ravel(world.icrs.dec.deg)[0])
         truth.append({"frame": frame, "x_det": tx, "y_det": ty,
                       "defocus": float(cfg.defocus_waves[frame % len(cfg.defocus_waves)]),
-                      "ra": float(wcs.pixel_to_world(*undistort_pixels(
-                          np.array([tx]), np.array([ty]), cfg)).icrs.ra.deg),
-                      "dec": float(wcs.pixel_to_world(*undistort_pixels(
-                          np.array([tx]), np.array([ty]), cfg)).icrs.dec.deg),
-                      "flux": cfg.target_flux})
+                      "ra": ra, "dec": dec, "flux": cfg.target_flux})
         hdu = fits.PrimaryHDU(raw.astype(np.float32))
         h = hdu.header
         h.update(wcs.to_header())
