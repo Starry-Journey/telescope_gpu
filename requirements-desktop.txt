@@ -1,2 +1,3 @@
 # Desktop shell only (optional; Web GUI works without it).
 pywebview>=5.0
+PySide6>=6.5
