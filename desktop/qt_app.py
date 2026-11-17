@@ -13,6 +13,7 @@ import base64
 import csv
 import io
 import json
+import os
 import sys
 import traceback
 from datetime import datetime
@@ -120,6 +121,7 @@ class QtApp(QMainWindow):
         self.last_ccd = None
         self.last_pd = None
         self.last_fea = None
+        self.last_s = None
         self.frames = []
         self._workers = []
         self.active_worker = None
@@ -146,6 +148,10 @@ class QtApp(QMainWindow):
         self.log_btn.setObjectName("Ghost")
         self.log_btn.clicked.connect(self.show_log)
         header.addWidget(self.log_btn, 0, Qt.AlignTop)
+        self.exp_btn = QPushButton("导出目录")
+        self.exp_btn.setObjectName("Ghost")
+        self.exp_btn.clicked.connect(self.export_all)
+        header.addWidget(self.exp_btn, 0, Qt.AlignTop)
         root.addLayout(header)
 
         self.tabs = QTabWidget()
@@ -180,6 +186,14 @@ class QtApp(QMainWindow):
         except Exception as e:
             te.setPlainText(str(e))
         lay.addWidget(te)
+        row = QHBoxLayout()
+        copy = QPushButton("复制全部"); copy.setObjectName("Ghost")
+        copy.clicked.connect(lambda: (QApplication.clipboard().setText(te.toPlainText()),
+                                      self.status("日志已复制")))
+        op = QPushButton("打开日志文件"); op.setObjectName("Ghost")
+        op.clicked.connect(lambda: os.startfile(str(self.log_path)))
+        row.addWidget(copy); row.addWidget(op); row.addStretch(1)
+        lay.addLayout(row)
         d.exec()
 
     def _log(self, text):
@@ -214,11 +228,11 @@ class QtApp(QMainWindow):
         if QMessageBox.question(self, "取消任务",
                                 "强制终止当前任务？可能留下临时文件。") != QMessageBox.Yes:
             return
+        # Cooperative: mark cancellation; current native C/NLopt step cannot be
+        # interrupted safely, so we do NOT terminate the QThread.
         w.requestInterruption()
-        w.terminate()
-        w.wait(1500)
-        self.ready()
-        self.status("已取消", WARN)
+        self.cancel_btn.setEnabled(False)
+        self.status("已请求取消，当前步骤结束后停止", WARN)
 
     def _run(self, fn, done, label):
         self.busy(label)
@@ -240,6 +254,39 @@ class QtApp(QMainWindow):
         w.result.connect(finish); w.failed.connect(fail)
         w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
         w.start()
+
+    def export_all(self):
+        directory = QFileDialog.getExistingDirectory(self, "选择导出目录")
+        if not directory:
+            return
+        out = Path(directory); out.mkdir(parents=True, exist_ok=True)
+        try:
+            if self.last_ccd:
+                (out / "ccd_metrics.json").write_text(
+                    json.dumps(self.last_ccd, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            if self.psf is not None:
+                np.save(out / "psf_stack.npy", np.asarray(self.psf))
+            if self.star_img.pixmap():
+                self.star_img.pixmap().save(str(out / "star_field.png"), "PNG")
+            if self.ccd_img.pixmap():
+                self.ccd_img.pixmap().save(str(out / "psf_montage.png"), "PNG")
+            if self.last_pd:
+                (out / "pd_result.json").write_text(
+                    json.dumps(self.last_pd, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            if self.last_fea:
+                (out / "fea_fit.json").write_text(
+                    json.dumps(self.last_fea, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            if self.fea_img.pixmap():
+                self.fea_img.pixmap().save(str(out / "fea_surface.png"), "PNG")
+            if getattr(self, "last_s", None):
+                (out / "sensitivity.json").write_text(
+                    json.dumps(self.last_s, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            if hasattr(self, "ctrl_img") and self.ctrl_img.pixmap():
+                self.ctrl_img.pixmap().save(str(out / "sensitivity_heatmap.png"), "PNG")
+            self.status("已导出到 " + str(out))
+        except Exception as e:
+            box = QMessageBox(QMessageBox.Critical, "导出", str(e), QMessageBox.Ok, self)
+            box.setDetailedText(traceback.format_exc()); box.exec()
 
     def _save_json(self, obj, default):
         path, _ = QFileDialog.getSaveFileName(self, "导出 JSON", str(Path(default).with_suffix(".json")),
@@ -490,10 +537,21 @@ class QtApp(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "ZMX", "", "ZMX (*.zmx)")
         if not path:
             return
-        def fn():
+        # Parsing is fast (~ms); do it synchronously so a QThread/QFileDialog
+        # interaction cannot leave the ZMX tab disabled/unresponsive.
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
             from products.zemax.zmx_parser import parse_zmx_bytes
-            return Path(path).name, parse_zmx_bytes(Path(path).read_bytes())
-        self._run(fn, self._on_zmx, "解析 ZMX")
+            d = parse_zmx_bytes(Path(path).read_bytes())
+            self._on_zmx((Path(path).name, d))
+            self.status("完成: ZMX 解析")
+        except Exception as e:
+            self.status("ZMX 解析失败", BAD)
+            box = QMessageBox(QMessageBox.Critical, "ZMX", str(e), QMessageBox.Ok, self)
+            box.setDetailedText(traceback.format_exc())
+            box.exec()
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _on_zmx(self, r):
         name, d = r
@@ -509,7 +567,11 @@ class QtApp(QMainWindow):
         u_btn = QPushButton("求解控制量 u"); u_btn.clicked.connect(self.run_u)
         row.addWidget(s_btn); row.addWidget(u_btn); row.addStretch(1)
         lay.addLayout(row)
-        self.ctrl_log = QTextEdit(); self.ctrl_log.setReadOnly(True)
+        self.ctrl_img = QLabel("S heatmap"); self.ctrl_img.setAlignment(Qt.AlignCenter)
+        self.ctrl_img.setMinimumSize(560, 260)
+        self.ctrl_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
+        lay.addWidget(self.ctrl_img, 2)
+        self.ctrl_log = QTextEdit(); self.ctrl_log.setReadOnly(True); self.ctrl_log.setMaximumHeight(170)
         lay.addWidget(self.ctrl_log, 1)
         return w
 
@@ -520,7 +582,30 @@ class QtApp(QMainWindow):
         self._run(fn, self._on_s, "计算 S")
 
     def _on_s(self, d):
-        self.ctrl_log.setPlainText("S=%s\nanalysis=%s" % (d.get("matrix"), d.get("analysis", {})))
+        self.last_s = d
+        self.ctrl_log.setPlainText("S=%s\nrank=%s condition=%s nullspace=%s" %
+                                   (d.get("values"), d.get("rank"), d.get("condition"),
+                                    d.get("nullspace")))
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            S = np.asarray(d["values"], dtype=float)
+            fig, ax = plt.subplots(figsize=(7, 3.2))
+            im = ax.imshow(S, cmap="RdBu_r", aspect="auto")
+            ax.set_xticks(range(S.shape[1])); ax.set_xticklabels(d.get("control_names", []), rotation=25, ha="right")
+            ax.set_yticks(range(S.shape[0])); ax.set_yticklabels(d.get("target_names", []))
+            for i in range(S.shape[0]):
+                for j in range(S.shape[1]):
+                    ax.text(j, i, "%.2f" % S[i, j], ha="center", va="center", fontsize=8)
+            ax.set_title("Sensitivity S [waves/(mm or mrad)]", fontsize=9)
+            fig.colorbar(im, ax=ax, shrink=0.8)
+            buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+            plt.close(fig)
+            pix = QPixmap(); pix.loadFromData(buf.getvalue())
+            self.ctrl_img.setPixmap(pix.scaled(self.ctrl_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        except Exception as e:
+            self.ctrl_log.append("heatmap error: " + str(e))
 
     def run_u(self):
         def fn():
