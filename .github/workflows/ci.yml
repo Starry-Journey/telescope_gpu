@@ -108,3 +108,21 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python3 -m unittest discover -s desktop/tests -v
+
+  cuda-compile:
+    runs-on: ubuntu-22.04
+    container: nvidia/cuda:12.4.1-devel-ubuntu22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake libeigen3-dev libnlopt-dev
+      - name: Configure CUDA build
+        run: >
+          cmake -S . -B build-cuda
+          -DTEL_BUILD_CUDA=ON
+          -DTEL_BUILD_NUMERICS=OFF
+          -DCMAKE_CUDA_ARCHITECTURES=86
+      - name: Compile CUDA library and apps (no GPU tests)
+        run: cmake --build build-cuda -j"$(nproc)" --target telescope_cuda forward_generate inverse_solve

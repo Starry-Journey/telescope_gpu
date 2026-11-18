@@ -2,7 +2,7 @@
 from __future__ import annotations
 import numpy as np
 import nlopt
-from ml.traditional import forward_psf_numpy
+from products.optics.forward import forward_psf_numpy
 
 
 def normalise(stack: np.ndarray) -> np.ndarray:

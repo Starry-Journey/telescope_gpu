@@ -104,7 +104,7 @@ def _gaussian_kernel(sigma: float, size: int = 31) -> np.ndarray:
 
 def _phase_kernel(cfg: RealisticConfig, defocus: float, size: int = 63) -> np.ndarray:
     """Fourier-optics PSF matching ml.traditional.forward_psf_numpy."""
-    from ml.traditional import forward_psf_numpy
+    from products.optics.forward import forward_psf_numpy
     psf = forward_psf_numpy([cfg.z4, cfg.z8, cfg.z9], float(defocus), n=64)
     c = psf.shape[0] // 2
     half = size // 2

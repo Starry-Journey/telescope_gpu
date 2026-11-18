@@ -773,7 +773,7 @@ class QtApp(QMainWindow):
     def run_demo(self):
         c4, c8, c9 = self.d4.value(), self.d8.value(), self.d9.value()
         def fn():
-            from ml.traditional import forward_stack_numpy
+            from products.optics.forward import forward_stack_numpy
             return forward_stack_numpy([c4, c8, c9], n=64)
         self._run(fn, self._on_demo, "PSF 演示")
 

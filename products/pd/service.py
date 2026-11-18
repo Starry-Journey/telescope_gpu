@@ -10,7 +10,7 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
-from ml.traditional import forward_psf_numpy
+from products.optics.forward import forward_psf_numpy
 
 
 from products.pd.core import normalise as _normalise, solve_one as _solve_one
