@@ -131,8 +131,9 @@ def _frames_png(stack):
 
 
 class QtApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, startup_t0=None):
         super().__init__()
+        self._startup_t0 = startup_t0
         self.setWindowTitle("Telescope Engineering · Qt")
         self.resize(1440, 940)
         self.psf = None
@@ -342,38 +343,70 @@ class QtApp(QMainWindow):
         w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
         w.start()
 
-    def export_all(self):
-        directory = QFileDialog.getExistingDirectory(self, "选择导出目录")
+    def export_all(self, directory=None):
+        if directory is None:
+            directory = QFileDialog.getExistingDirectory(self, "选择导出目录")
         if not directory:
-            return
+            return None
         out = Path(directory); out.mkdir(parents=True, exist_ok=True)
+        files = []
         try:
             if self.last_ccd:
+                # strip base64 payloads: images are exported as files, metrics stay small
+                ccd = dict(self.last_ccd)
+                ccd.pop("psf_png", None)
+                ccd["frames"] = [{"defocus": f.get("defocus")} for f in ccd.get("frames", [])]
                 (out / "ccd_metrics.json").write_text(
-                    json.dumps(self.last_ccd, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                    json.dumps(ccd, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                files.append("ccd_metrics.json")
             if self.psf is not None:
                 np.save(out / "psf_stack.npy", np.asarray(self.psf))
+                files.append("psf_stack.npy")
             if self.star_img.pixmap():
                 self.star_img.pixmap().save(str(out / "star_field.png"), "PNG")
+                files.append("star_field.png")
             if self.ccd_img.pixmap():
                 self.ccd_img.pixmap().save(str(out / "psf_montage.png"), "PNG")
+                files.append("psf_montage.png")
             if self.last_pd:
                 (out / "pd_result.json").write_text(
                     json.dumps(self.last_pd, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                files.append("pd_result.json")
+            if self.pd_img.pixmap():
+                self.pd_img.pixmap().save(str(out / "pd_bar.png"), "PNG")
+                files.append("pd_bar.png")
             if self.last_fea:
                 (out / "fea_fit.json").write_text(
                     json.dumps(self.last_fea, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                files.append("fea_fit.json")
             if self.fea_img.pixmap():
                 self.fea_img.pixmap().save(str(out / "fea_surface.png"), "PNG")
+                files.append("fea_surface.png")
+            if self.fea_bar.pixmap():
+                self.fea_bar.pixmap().save(str(out / "fea_bar.png"), "PNG")
+                files.append("fea_bar.png")
             if getattr(self, "last_s", None):
                 (out / "sensitivity.json").write_text(
                     json.dumps(self.last_s, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                files.append("sensitivity.json")
             if hasattr(self, "ctrl_img") and self.ctrl_img.pixmap():
                 self.ctrl_img.pixmap().save(str(out / "sensitivity_heatmap.png"), "PNG")
+                files.append("sensitivity_heatmap.png")
+            manifest = {"schema_version": 1, "app": "TelescopeEngineeringQtNative",
+                        "exported": datetime.now().isoformat(timespec="seconds"),
+                        "inputs": {"ccd_star": (self.last_ccd or {}).get("star"),
+                                   "pd_nfev": (self.last_pd or {}).get("nfev"),
+                                   "fea_case": ((self.last_fea or {}).get("case") or {}).get("id")},
+                        "labels": {"ccd": "SYNTHETIC-VALIDATED", "fea": "FEA-PROVISIONAL"},
+                        "files": files}
+            (out / "manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
             self.status("已导出到 " + str(out))
+            return out
         except Exception as e:
             box = QMessageBox(QMessageBox.Critical, "导出", str(e), QMessageBox.Ok, self)
             box.setDetailedText(traceback.format_exc()); box.exec()
+            return None
 
     def _save_json(self, obj, default):
         path, _ = QFileDialog.getSaveFileName(self, "导出 JSON", str(Path(default).with_suffix(".json")),
@@ -542,8 +575,10 @@ class QtApp(QMainWindow):
         self.pd_log.setPlainText("Z=%s\nnfev=%s cost=%s\nresidual_rms=%s" %
                                  (r["zernike"], r["nfev"], r["cost"], r.get("residual_rms")))
         try:
-            z = r.get("zernike", [])
-            self.pd_img.setPixmap(_bar_png(["Z4", "Z8", "Z9"], z, "PD Zernike [nm]").scaled(
+            z = r.get("zernike", {})
+            if isinstance(z, dict):
+                z = [z.get(k, 0.0) for k in ("Z4", "Z8", "Z9")]
+            self.pd_img.setPixmap(_bar_png(["Z4", "Z8", "Z9"], z, "PD Zernike [waves]").scaled(
                 self.pd_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         except Exception as e:
             self.pd_log.append("bar error: " + str(e))
@@ -752,7 +787,7 @@ def run_gui(t0=None):
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
     try:
-        w = QtApp()
+        w = QtApp(startup_t0=t0)
     except Exception as e:
         base = (Path(sys.executable).resolve().parent
                 if getattr(sys, "frozen", False) else ROOT / "results")
@@ -767,7 +802,8 @@ def run_gui(t0=None):
         raise
     w.show()
     try:
-        w._log("startup %.2fs (entry->show)" % (time.perf_counter() - (t0 or time.perf_counter())))
+        if w._startup_t0 is not None:
+            w._log("startup %.2fs (entry->show)" % (time.perf_counter() - w._startup_t0))
     except Exception:
         pass
     app.exec()

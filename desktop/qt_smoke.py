@@ -24,7 +24,7 @@ w._on_ccd(r)
 assert w.star_img.pixmap() is not None, "star frame pixmap missing"
 assert w.ccd_img.pixmap() is not None, "PSF montage missing"
 assert w.star_combo.count() == 3, "star frame selector missing"
-w._on_pd({"zernike": [0.3, 0.1, -0.05], "nfev": 10, "cost": 1e-8,
+w._on_pd({"zernike": {"Z4": 0.306, "Z8": 0.091, "Z9": -0.045}, "nfev": 151, "cost": 1.2e-7,
           "residual_rms": 0.01})
 assert w.pd_img.pixmap() is not None, "PD bar missing"
 w._on_fea(sens.case_detail("M1_distributed_0deg"))
