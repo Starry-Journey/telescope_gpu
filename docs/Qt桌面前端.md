@@ -121,3 +121,21 @@ EXE --worker task --job ... --result ...
 ```
 
 worker 分支不再加载 Qt，启动/内存更低。
+
+## 13. TaskRunner 取消语义（2026-11-18）
+
+```text
+desktop/tasks.py     TaskRunner：每任务独立 cancelled/proc/task_dir/result
+desktop/protocol.py  Qt-free：build_worker_command / make_job / parse_job
+```
+
+- 取消：`proc.kill()` → `waitForFinished(1500)` → 超时再 kill 一次；
+  之后确定性 settle（`_take_result` + `cancelled.emit`），
+  不再依赖 QProcess 在 kill 后一定发 finished/error 信号。
+- kill 触发的 `errorOccurred(Crashed)` 会检查 cancelled 标志，
+  不再把用户取消误报为失败。
+- 所有结束路径（成功/失败/取消/启动失败/写 job 失败）都清理 task 目录。
+- 日志统一：`TASK ok|fail|cancel <label> <elapsed>s`，elapsed 用 monotonic。
+- `closeEvent`：窗口关闭时若任务在跑，先取消，避免孤儿 worker。
+- 测试：`desktop/tests/test_task_runner.py` 6 项（完成/取消/启动失败/
+  无结果/写 job 失败/残留清理），由 CI desktop-smoke job（PySide6 offscreen）运行。
