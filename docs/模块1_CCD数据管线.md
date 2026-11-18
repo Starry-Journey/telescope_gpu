@@ -27,8 +27,8 @@ Z4/Z8/Z9 + defocus
 |---|---|---|
 | 相位 PSF | ml.traditional.forward_psf_numpy | pipeline/realistic.py |
 | 星场/噪声 | Moffat/相位 PSF + CCD 效应 | pipeline/realistic.py |
-| 定标 | bias/dark/flat | web/ccd_pipeline_service.py |
-| PSF 提取 | 孤立定标星 + 平面背景 + 归一化 | web/ccd_pipeline_service.py |
+| 定标 | bias/dark/flat | products/ccd/service.py |
+| PSF 提取 | 孤立定标星 + 平面背景 + 归一化 | products/ccd/service.py |
 
 
 ## 02 物理与真实感

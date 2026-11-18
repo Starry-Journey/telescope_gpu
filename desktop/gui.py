@@ -293,6 +293,7 @@ class QtApp(QMainWindow):
         self._task_done = None
         self.ready()
         self.status("失败: " + label, BAD)
+        self._log("TASK fail %s %.2fs" % (label, self.runner.last_elapsed))
         self._log("ERROR " + label + "\n" + msg)
         box = QMessageBox(QMessageBox.Critical, label, str(msg)[:500], QMessageBox.Ok, self)
         box.setDetailedText(msg)
@@ -302,7 +303,13 @@ class QtApp(QMainWindow):
         label = self._task_label or "任务"
         self._task_done = None
         self.ready()
+        self._log("TASK cancel %s %.2fs" % (label, self.runner.last_elapsed))
         self.status("已取消: " + label, WARN)
+
+    def closeEvent(self, event):
+        if self.runner.busy():
+            self.runner.cancel()
+        super().closeEvent(event)
 
     def cancel_task(self):
         if not self.runner.busy():

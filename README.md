@@ -16,7 +16,7 @@
 > （波前 RMS 与系数 RMS 相差 √3，不能直接混比）。
 > 这是**已知真值的仿真数据**，不是实测精度。
 >
-> 详细架构、逐模块讲解与设计复盘见 `docs/代码说明.md`。
+> 详细架构、逐模块讲解与设计复盘见 `docs/archive/代码说明.md`。
 
 ## 工程化 MVP（L1–L5）
 
@@ -26,7 +26,7 @@
 |---|---|---|
 | L1–L3 | `numerics/` | Eigen LU/QR/SVD、radix-2 FFT、RK4；GTest 10 项、Google Benchmark、ASan、pybind11 |
 | L4 | `pipeline/` | CCD 定标/星点/帧差/Hough/WCS/评估（numpy+scipy+astropy） |
-| L5 | `ml/`、`web/` | PyTorch 可微相位差前向、CNN、传统对比；只读可视化 demo |
+| L5 | `ml/` | PyTorch 可微相位差前向、CNN、传统对比；可视化走 `desktop/`（Qt），`web/` 仅兼容 wrapper |
 | 部署 | `Dockerfile`、`.github/workflows/ci.yml` | CPU MVP 镜像 + GitHub Actions |
 
 快速验收：
@@ -114,7 +114,7 @@ python3 -m unittest discover -s pipeline/tests -v
 结果在 `results/ccd_pipeline/`（已被 `.gitignore` 忽略）。默认仿真结果：
 星点完备率 1.000、运动目标检测率 0.85、虚警率 0.000、目标位置 RMSE
 1.09 pixel、天体测量 RMSE 1.39 arcsec。详细模块表、算法和边界见
-`pipeline/README.md`，机理型 Word 教程见 `docs/CCD星场处理管线说明.docx`。
+`pipeline/README.md`，机理型 Word 教程见 `docs/archive/CCD星场处理管线说明.docx`。
 
 
 构建目标分两层，依赖方向单一（CUDA → CPU）：
@@ -218,7 +218,7 @@ ctest --output-on-failure
 也就是说，本项目拟合的是“离焦 + x 彗差 + y 彗差”，物理含义没问题，
 但 `Z9` 对应文献里的 Noll Z7。与 Zemax 对照时：
 Zemax Z7（垂直彗差）→ 代码 Z9，Zemax Z8（水平彗差）→ 代码 Z8。
-详见 `docs/代码说明.md`。
+详见 `docs/archive/代码说明.md`。
 
 ## 数值自检与已知边界
 
@@ -256,20 +256,20 @@ final cost = 5.3124e-03 (cost(true) = 5.3125e-03)
 
 研究报告 PPT 中 `RMS=0.0631λ`、`Z4 误差 0.0960λ` 等数字来自早期版本，
 与当前代码不一致。答辩前应二选一：用当前代码重跑并更新 PPT，或在 PPT
-中明确标注“早期版本/不同参数”。`docs/代码说明.md` 第 11 章给出了对照表
+中明确标注“早期版本/不同参数”。`docs/archive/代码说明.md` 第 11 章给出了对照表
 和更新建议。
 
 ## 文档
 
-- `docs/代码说明.md`：架构、模块职责、逐函数讲解、数据流、代码审查记录、
+- `docs/archive/代码说明.md`：架构、模块职责、逐函数讲解、数据流、代码审查记录、
   性能分析与设计复盘。
 - `README.md`：构建/运行/边界。
-- `docs/工程化技术说明_代码对齐版.docx`：总览（软件设计、科学原理、模块/函数、测试、CI、与主报告对齐）。
+- `docs/archive/工程化技术说明_代码对齐版.docx`：总览（软件设计、科学原理、模块/函数、测试、CI、与主报告对齐）。
 - `docs/数值库技术说明.docx`：`numerics/`（Eigen/GTest/Benchmark/pybind11）。
-- `docs/CCD星场处理管线说明.docx`：`pipeline/`（定标/星点/帧差/Hough/WCS/评估）。
-- `docs/学习型反演技术说明.docx`：`ml/`（可微前向/CNN/two-stage）。
+- `docs/archive/CCD星场处理管线说明.docx`：`pipeline/`（定标/星点/帧差/Hough/WCS/评估）。
+- `docs/archive/学习型反演技术说明.docx`：`ml/`（可微前向/CNN/two-stage）。
 - 旧 Web 文档：`docs/archive/Web小程序技术说明.docx`（已归档）。
-- `docs/技术报告_代码对齐版_v2.docx`：主技术报告 + 附录D 工程化扩展与代码对齐。
+- `docs/archive/技术报告_代码对齐版_v2.docx`：主技术报告 + 附录D 工程化扩展与代码对齐。
 - `docs/模块化文档索引.md`：模块文档/命令/口径索引。
 - `docs/tutorials/`：逐模块教程与复现命令。
 
@@ -304,7 +304,7 @@ ctest --test-dir build-framework -R framework --output-on-failure
 
 ```bash
 python3 -m products.sensitivity.generate_cases
-python3 -m unittest discover -s web/tests -v
+python3 -m unittest discover -s products/tests -v
 ```
 
 接口：

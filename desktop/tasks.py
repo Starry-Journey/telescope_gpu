@@ -26,12 +26,13 @@ class TaskRunner(QObject):
     cancelled = Signal()
     started = Signal(str)
 
-    def __init__(self, task_root: Path, parent=None):
+    def __init__(self, task_root: Path, parent=None, command_builder=None):
         super().__init__(parent)
         self.task_root = Path(task_root)
         self.task_root.mkdir(parents=True, exist_ok=True)
         self.task = None
         self.last_elapsed = 0.0
+        self._command_builder = command_builder or build_worker_command
         self._cleanup_stale()
 
     def _cleanup_stale(self):
@@ -51,19 +52,26 @@ class TaskRunner(QObject):
         td = Path(tempfile.mkdtemp(prefix="task_", dir=str(self.task_root)))
         job = td / "job.json"
         result = td / "result.json"
-        job.write_text(json.dumps(make_job(task, payload, task_id), default=str),
-                       encoding="utf-8")
+        try:
+            job.write_text(json.dumps(make_job(task, payload, task_id), default=str),
+                           encoding="utf-8")
+        except Exception:
+            try:
+                shutil.rmtree(td)
+            except OSError:
+                pass
+            raise
         proc = QProcess(self)
         proc.setWorkingDirectory(str(ROOT))
         self.task = {"id": task_id, "dir": td, "job": job, "result": result,
                      "proc": proc, "cancelled": False, "done": False,
-                     "out": bytearray(), "start": time.time()}
+                     "out": bytearray(), "start": time.monotonic()}
         proc.readyReadStandardOutput.connect(lambda: self._read(proc))
         proc.readyReadStandardError.connect(lambda: self._read(proc))
         proc.finished.connect(self._on_finished)
         proc.errorOccurred.connect(self._on_error)
-        prog, args = build_worker_command(task, job, result,
-                                          frozen=getattr(sys, "frozen", False))
+        prog, args = self._command_builder(task, job, result,
+                                           frozen=getattr(sys, "frozen", False))
         proc.start(prog, args)
         self.started.emit(task_id)
 
@@ -88,7 +96,7 @@ class TaskRunner(QObject):
             shutil.rmtree(t["dir"])
         except OSError:
             pass
-        elapsed = time.time() - t["start"]
+        elapsed = time.monotonic() - t["start"]
         self.last_elapsed = elapsed
         return t, raw, data, elapsed
 
@@ -98,7 +106,7 @@ class TaskRunner(QObject):
             return
         t["done"] = True
         cancelled = bool(t["cancelled"])
-        t, raw, data, elapsed = self._take_result()
+        t, raw, data, _elapsed = self._take_result()
         if t is None:
             return
         if cancelled:
@@ -116,8 +124,12 @@ class TaskRunner(QObject):
         if t is None or t["done"]:
             return
         t["done"] = True
-        t, raw, data, elapsed = self._take_result()
+        cancelled = bool(t["cancelled"])
+        t, raw, _data, _elapsed = self._take_result()
         if t is None:
+            return
+        if cancelled:
+            self.cancelled.emit()
             return
         self.failed.emit("worker process error: %s\n%s" % (err, raw[-2000:]))
 
@@ -126,9 +138,18 @@ class TaskRunner(QObject):
         if t is None:
             return False
         t["cancelled"] = True
-        t["proc"].kill()
-        finished = t["proc"].waitForFinished(1500)
+        proc = t["proc"]
+        proc.kill()
+        finished = proc.waitForFinished(1500)
         if not finished:
+            # forced cancel: kill again so the worker cannot outlive the UI
+            proc.kill()
+            proc.waitForFinished(500)
+        if self.task is t and not t["done"]:
+            # settle deterministically: QProcess occasionally swallows the
+            # finished/error signals around kill(); late signals are ignored
+            # via the done flag / task slot.
+            t["done"] = True
             self._take_result()
             self.cancelled.emit()
         return True

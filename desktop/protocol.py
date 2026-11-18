@@ -31,6 +31,9 @@ def parse_job(doc: dict, task: str) -> dict:
         task_in_doc = doc.get("task")
         if task_in_doc and task_in_doc != task:
             raise ValueError(f"job task {task_in_doc!r} != CLI task {task!r}")
-        return doc["payload"]
+        payload = doc["payload"]
+        if not isinstance(payload, dict):
+            raise ValueError("job payload must be an object")
+        return payload
     return doc
 

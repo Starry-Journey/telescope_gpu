@@ -1,8 +1,8 @@
 # Zemax 3A：ZMX 解析与 ZOS-API 灵敏度
 
 > 代码：`products/zemax/zmx_parser.py`、`products/zemax/zos_bridge.py`、
-> `web/job_queue.py`、`scripts/zemax_zos_worker.py`
-> 接口：`POST /api/zemax/inspect`、`POST /api/zemax/jobs`、`GET /api/jobs/{id}`
+> `products/jobs/store.py`、`scripts/zemax_zos_worker.py`
+> 接口：旧 Web API 已归档（`archive/legacy-web/`）；桌面走 Qt ZMX 页签
 
 ## 1. 当前状态
 

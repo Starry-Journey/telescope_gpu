@@ -54,3 +54,4 @@ ml/results/
 !docs/data/*.csv
 ~$*
 qt_tasks/
+results/jobs.sqlite3

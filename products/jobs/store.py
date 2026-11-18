@@ -86,20 +86,7 @@ _store = None
 def get_store():
     global _store
     if _store is None:
-        __store = None
-
-
-def get_store():
-    global _store
-    if _store is None:
         _store = JobStore()
-    return _store
-
-
-def __getattr__(name):
-    if name == "store":
-        return get_store()
-    raise AttributeError(name)
     return _store
 
 

@@ -17,9 +17,9 @@
 
 ## 其它文档
 
-- CCD 管线 32 页 Word/PDF：`docs/CCD星场处理管线说明.docx` / `.pdf`
+- CCD 管线 32 页 Word/PDF：`docs/archive/CCD星场处理管线说明.docx` / `.pdf`
 - 模块注释索引：`docs/代码模块注释索引.md`
-- 原相位差项目：`docs/代码说明.md`
+- 原相位差项目：`docs/archive/代码说明.md`
 - Docker 构建记录：`docs/Docker构建记录.md`
 - 管线 README：`pipeline/README.md`
 - 数值库 README：`numerics/README.md`

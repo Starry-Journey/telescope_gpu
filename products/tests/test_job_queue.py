@@ -23,6 +23,29 @@ class JobQueueTest(unittest.TestCase):
         self.assertEqual(js.ROOT, Path(__file__).resolve().parents[2])
         self.assertEqual(js.DB_PATH, js.ROOT / "results" / "jobs.sqlite3")
 
+    def test_lazy_singleton(self):
+        """get_store creates the singleton only on first call, honoring TEL_JOB_DB."""
+        import importlib
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            os.environ["TEL_JOB_DB"] = str(Path(td) / "lazy.sqlite3")
+            try:
+                mod = importlib.import_module("products.jobs.store")
+                mod = importlib.reload(mod)  # fresh: singleton must start unset
+                self.assertIsNone(mod._store)
+                s1 = mod.get_store()
+                self.assertIs(mod._store, s1)
+                self.assertEqual(s1.path, Path(os.environ["TEL_JOB_DB"]))
+                self.assertTrue(s1.path.exists())
+                self.assertIs(mod.get_store(), s1)
+            finally:
+                os.environ.pop("TEL_JOB_DB", None)
+                importlib.reload(mod)  # restore default module state
+        self.assertFalse((js.ROOT / "results" / "jobs.sqlite3").exists(),
+                         "lazy test must not create a DB inside the repo")
+
 
 if __name__ == "__main__":
     unittest.main()

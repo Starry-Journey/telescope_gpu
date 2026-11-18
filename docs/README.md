@@ -16,7 +16,7 @@
 | 文档 | 内容 |
 |---|---|
 | `Qt桌面前端.md` | PySide6 页签、QProcess、导出、日志、打包 |
-| `桌面GUI.md` | PyWebView/Tkinter 历史尝试与回退 |
+| `archive/桌面GUI.md` | PyWebView/Tkinter 历史尝试与回退（已归档） |
 
 ## 3. 三个模块
 

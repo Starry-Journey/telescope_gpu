@@ -28,6 +28,15 @@ jobs:
       - name: Worker dispatch / no-Qt worker
         run: python3 -m unittest discover -s desktop/tests -v
 
+      - name: Doc link check
+        run: python3 scripts/check_doc_links.py
+
+      - name: Ruff (E/F/I, advisory until baseline is cleaned)
+        continue-on-error: true
+        run: |
+          pip install ruff
+          ruff check --select E,F,I --extend-exclude archive --extend-exclude scripts .
+
   framework:
     runs-on: ubuntu-22.04
     steps:
@@ -79,4 +88,23 @@ jobs:
           print("pybind11 OK", x)
           PY
 
-
+  desktop-smoke:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1
+      - name: Install Python deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install PySide6 numpy scipy astropy matplotlib nlopt
+      - name: Qt headless smoke
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 desktop/qt_smoke.py
+      - name: Desktop tests (incl. TaskRunner)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 -m unittest discover -s desktop/tests -v

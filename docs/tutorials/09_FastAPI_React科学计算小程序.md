@@ -1,3 +1,5 @@
+> **已归档**：本文按旧 FastAPI/React 写成；Web UI/API 已移至 `archive/legacy-web/`，桌面主路径是 `desktop/qt_app.py`（PySide6）。内容仅供追溯。
+
 # FastAPI + React + Plotly 科学计算小程序
 
 > 代码：`web/api/main.py`、`web/ui/index.html`
