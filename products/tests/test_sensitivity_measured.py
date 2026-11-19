@@ -79,6 +79,8 @@ class MeasuredSensitivityTest(unittest.TestCase):
         self.assertEqual(r["dofs"], DOFS3)
         self.assertEqual(r["rank"], 3)
         self.assertEqual(r["nullspace_dim"], 0)
+        sv = np.linalg.svd(S3, compute_uv=False)
+        self.assertAlmostEqual(r["condition"], float(sv[0] / sv[-1]), places=9)
 
     def test_linear_drift_removed(self):
         drift = np.array([2e-4, -1e-4, 3e-4])

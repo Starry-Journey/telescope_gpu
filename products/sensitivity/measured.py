@@ -195,7 +195,7 @@ def measure_sensitivity(poses: Sequence[Pose],
     S_std = np.stack(std_cols, axis=1)
     sv = np.linalg.svd(S, compute_uv=False)
     rank = int(np.sum(sv > rank_tol * max(float(sv[0]), 1.0)))
-    cond = float(sv[0] / sv[-1]) if sv.size > rank and sv[-1] > 0 else float("inf")
+    cond = float(sv[0] / sv[-1]) if sv.size and sv[-1] > 0 else float("inf")
     _, _, vt = np.linalg.svd(S)
     return {
         "S": S.tolist(),
