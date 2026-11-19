@@ -45,6 +45,22 @@ def run_worker(task, job_path=None, result_path=None):
     elif task == "u":
         from products.control import service as fw
         r = fw.control(payload["target"])
+    elif task == "sens_measure":
+        from products.sensitivity.measured import (poses_from_payload,
+                                                   measure_sensitivity)
+        kw = {k: payload[k] for k in ("maxeval", "n_starts", "seed")
+              if k in payload}
+        terms = payload.get("terms") or None
+        r = measure_sensitivity(poses_from_payload(payload["poses"]),
+                                terms=terms, invert_kwargs=kw or None)
+    elif task == "sens_demo":
+        from products.sensitivity.measured import demo_synthetic
+        r = demo_synthetic(noise=float(payload.get("noise", 3e-4)),
+                           seed=int(payload.get("seed", 11)),
+                           n=int(payload.get("n", 32)),
+                           amplitude=float(payload.get("amplitude", 0.05)),
+                           maxeval=int(payload.get("maxeval", 150)),
+                           n_starts=int(payload.get("n_starts", 2)))
     else:
         raise SystemExit("unknown task " + task)
     out = json.dumps(r, ensure_ascii=False, default=str)

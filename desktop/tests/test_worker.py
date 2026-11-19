@@ -38,6 +38,34 @@ class WorkerDispatchTest(unittest.TestCase):
         self.assertEqual(len(d["psf"]), 3)
         self.assertEqual(len(d["psf"][0]), 64)
 
+    def test_sens_measure_task(self):
+        # one-dof minimal bracketed series, frames from the single forward
+        try:
+            import nlopt  # noqa: F401
+        except Exception:
+            self.skipTest("nlopt not available")
+        from products.optics.forward import forward_stack_numpy
+        gain = 4.04  # Z4 waves per mm on the proxy m2_focus axis
+        frames = {
+            "ref": forward_stack_numpy([0.02, 0.0, 0.0], n=32).tolist(),
+            "pos": forward_stack_numpy([0.02 + gain * 0.05, 0.0, 0.0], n=32).tolist(),
+            "neg": forward_stack_numpy([0.02 - gain * 0.05, 0.0, 0.0], n=32).tolist(),
+        }
+        payload = {
+            "poses": [
+                {"dof": None, "level": 0.0, "frames": frames["ref"], "timestamp": 0},
+                {"dof": "m2_focus", "level": 0.05, "frames": frames["pos"], "timestamp": 1},
+                {"dof": None, "level": 0.0, "frames": frames["ref"], "timestamp": 2},
+                {"dof": "m2_focus", "level": -0.05, "frames": frames["neg"], "timestamp": 3},
+                {"dof": None, "level": 0.0, "frames": frames["ref"], "timestamp": 4},
+            ],
+            "maxeval": 150, "n_starts": 2,
+        }
+        d = self._run_worker("sens_measure", payload)
+        self.assertEqual(d["terms"], ["Z4", "Z8", "Z9"])
+        self.assertEqual(d["dofs"], ["m2_focus"])
+        self.assertAlmostEqual(d["S"][0][0], gain, delta=0.25)
+
 
 if __name__ == "__main__":
     unittest.main()
