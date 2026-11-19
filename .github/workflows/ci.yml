@@ -135,4 +135,6 @@ jobs:
           -DTEL_BUILD_NUMERICS=OFF
           -DCMAKE_CUDA_ARCHITECTURES=86
       - name: Compile CUDA library and apps (no GPU tests)
-        run: cmake --build build-cuda -j"$(nproc)" --target telescope_cuda forward_generate inverse_solve
+        run: |
+          # limit parallelism: nvcc in the CUDA container can OOM with -j$(nproc)
+          cmake --build build-cuda -j2 --target telescope_cuda forward_generate inverse_solve
