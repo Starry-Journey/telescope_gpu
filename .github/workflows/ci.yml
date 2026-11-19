@@ -14,7 +14,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake libeigen3-dev libgtest-dev libbenchmark-dev \
-            pybind11-dev python3-numpy python3-scipy python3-astropy python3-matplotlib python3-nlopt
+            pybind11-dev python3-numpy python3-scipy python3-astropy python3-matplotlib python3-nlopt python3-pil
       - name: Configure CPU build
         run: cmake -S . -B build -DTEL_BUILD_CUDA=OFF -DTEL_BUILD_NUMERICS=OFF
       - name: Build CPU layer
@@ -23,7 +23,17 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       - name: Product services (numpy-only)
-        run: python3 -m unittest discover -s products/tests -v
+        run: |
+          set +e
+          python3 -m unittest discover -s products/tests -v 2>&1 | tee /tmp/products-tests.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            # surface the failing test names/blocks as annotations (job logs need
+            # auth, annotations do not)
+            grep -E "^(FAIL|ERROR):" /tmp/products-tests.log | sed 's/^/::error::/' || true
+            grep -A6 -E "^(FAIL|ERROR):" /tmp/products-tests.log | head -40 || true
+            exit 1
+          fi
 
       - name: Worker dispatch / no-Qt worker
         run: python3 -m unittest discover -s desktop/tests -v
@@ -117,7 +127,7 @@ jobs:
       - name: Install build deps
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends cmake libeigen3-dev libnlopt-dev libnlopt-cxx-dev
+          apt-get install -y --no-install-recommends cmake libeigen3-dev libnlopt-dev
       - name: Configure CUDA build
         run: >
           cmake -S . -B build-cuda
