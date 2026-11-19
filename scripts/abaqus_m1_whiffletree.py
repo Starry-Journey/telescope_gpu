@@ -55,13 +55,13 @@ for d in (OUT, SCRATCH):
 # Abaqus writes job files (.inp/.odb/.dat/.msg) into the process cwd.
 os.chdir(SCRATCH)
 
-R_OUT = 1250.0
-R_IN = 350.0
-THICK = 260.0
+R_OUT = float(os.environ.get("TEL_ABAQUS_ROUT", 1250.0))
+R_IN = float(os.environ.get("TEL_ABAQUS_RIN", 350.0))
+THICK = float(os.environ.get("TEL_ABAQUS_THICK", 260.0))
 E = 90000.0            # MPa
 NU = 0.24
 RHO = 2.53e-9          # t/mm^3
-ALPHA = 5.0e-8         # 1/K
+ALPHA = float(os.environ.get("TEL_ABAQUS_ALPHA", 5.0e-8))   # 1/K
 K_BOTTOM = float(os.environ.get("TEL_ABAQUS_KB", 1.0e6))   # N/mm per pad, axial
 K_SIDE = float(os.environ.get("TEL_ABAQUS_KS", 5.0e5))     # N/mm per pad, radial
 SEED = float(os.environ.get("TEL_ABAQUS_SEED", 45.0))
@@ -76,12 +76,13 @@ R_PAD_SIDE = 45.0      # side pad patch radius, mm
 BOTTOM_RINGS = ((375.0, 6), (625.0, 12), (875.0, 12), (1125.0, 6))
 N_SIDE = 24
 
+DT = float(os.environ.get("TEL_ABAQUS_DT", 20.0))
 CASES = (
     ("gravity_0deg", "gravity", (9810.0, 0.0, 0.0)),
     ("gravity_90deg", "gravity", (0.0, 0.0, -9810.0)),
-    ("thermal_plus20K", "thermal", 20.0),
-    ("thermal_minus20K", "thermal", -20.0),
-    ("thermal_grad20K", "thermal_gradient", 20.0),
+    ("thermal_plusDT", "thermal", abs(DT)),
+    ("thermal_minusDT", "thermal", -abs(DT)),
+    ("thermal_gradDT", "thermal_gradient", abs(DT)),
 )
 
 
@@ -296,6 +297,8 @@ def export_top(name, step):
 print("OUT =", OUT, "| seed =", SEED, "| k_bottom =", K_BOTTOM,
       "| k_side =", K_SIDE, "| suffix =", SUFFIX)
 for tag, kind, spec in CASES:
+    if tag.startswith("thermal_") and abs(DT - 20.0) < 1e-9:
+        tag = tag.replace("DT", "20K")
     if ONLY and tag not in ONLY:
         continue
     nm, step = make_case(tag, kind, spec)

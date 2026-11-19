@@ -51,8 +51,11 @@ class WorkerDispatchTest(unittest.TestCase):
                    "azim": -60, "elev": 25}
         d = self._run_worker("fea_viz", payload)
         self.assertGreater(len(d["png3d_b64"]), 2000)
-        self.assertEqual(sorted(d["stats"].keys()), ["n", "pv_nm", "rms_nm"])
-        self.assertEqual(d["stats"]["n"], 144)
+        stats = d["stats"]
+        for key in ("n", "pv_nm", "rms_nm", "obscuration", "masked_obscuration"):
+            self.assertIn(key, stats)
+        self.assertEqual(stats["n"], 144)
+        self.assertEqual(stats["masked_obscuration"], 0)
         self.assertEqual(d["label"], "synthetic_12x12")
         g = d["grid"]
         self.assertEqual(len(g["x"]), len(g["y"]))

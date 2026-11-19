@@ -376,6 +376,121 @@
         "Z8": -0.057446,
         "Z9": -0.036158
       }
+    },
+    {
+      "id": "M1_design_gravity_0deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis horizontal",
+      "file": "abaqus_design/M1_gravity_0deg_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 3.677,
+      "fit_residual_rms_nm": 1.763,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 0.0006866186608113778,
+        "Z8": -0.03752071653664851,
+        "Z9": 0.016494995551316505
+      }
+    },
+    {
+      "id": "M1_design_gravity_90deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis vertical",
+      "file": "abaqus_design/M1_gravity_90deg_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 1270.961,
+      "fit_residual_rms_nm": 6.134,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -469.9728054280899,
+        "Z8": -0.22909324202808534,
+        "Z9": -0.6388923914845321
+      }
+    },
+    {
+      "id": "M1_design_thermal_plus5K",
+      "surface": "M1",
+      "load_case": "uniform +5 K (design: 15..25 degC)",
+      "file": "abaqus_design/M1_thermal_plusDT_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 135.176,
+      "fit_residual_rms_nm": 0.338,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 0.051914924581779875,
+        "Z8": -0.002112802966487408,
+        "Z9": -0.0019263215451564147
+      }
+    },
+    {
+      "id": "M1_design_thermal_minus5K",
+      "surface": "M1",
+      "load_case": "uniform -5 K (design: 15..25 degC)",
+      "file": "abaqus_design/M1_thermal_minusDT_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 135.176,
+      "fit_residual_rms_nm": 0.338,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -0.051914924581779875,
+        "Z8": 0.002112802966487408,
+        "Z9": 0.0019263215451564147
+      }
+    },
+    {
+      "id": "M1_design_thermal_grad5K",
+      "surface": "M1",
+      "load_case": "radial soak gradient 0->5 K (assumed profile)",
+      "file": "abaqus_design/M1_thermal_gradDT_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 83.206,
+      "fit_residual_rms_nm": 0.476,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 40.166365611999346,
+        "Z8": -0.007458593999161156,
+        "Z9": -0.03839425141778019
+      }
     }
   ],
   "abaqus_model": {
@@ -396,5 +511,37 @@
       "alpha_per_K": 5e-08
     },
     "warning": "plate-level model; magnitudes depend on the assumed pad stiffness and exceed the design RMS spec"
+  },
+  "abaqus_design_model": {
+    "script": "scripts/abaqus_m1_design.py / scripts/abaqus_m1_whiffletree.py (parameterised)",
+    "documented": {
+      "R_vertex_mm": 7331.0,
+      "conic": -1.02347,
+      "outer_diameter_mm": 2560.0,
+      "clear_aperture_mm": 2500.0,
+      "central_hole_mm": 700.0,
+      "edge_thickness_mm": 260.0,
+      "thickness_ratio": "9:1",
+      "material": "微晶玻璃 (sitall, 标准级)",
+      "cte_per_K": "1e-7 (upper bound from text)",
+      "spec_rms_nm": 15.82,
+      "thermal_range_K": "15..25 degC -> +/-5 K"
+    },
+    "assumed": {
+      "support_layout": "36 axial (6-12-12-6) + 24 lateral (NOT in text)",
+      "lightweighting": "solid annulus (no rib pattern in text)",
+      "E_MPa": 90000.0,
+      "nu": 0.24,
+      "rho_t_mm3": 2.53e-09,
+      "alpha_used_per_K": 1e-07,
+      "pad_patch_mm": [
+        70.0,
+        45.0
+      ]
+    },
+    "limitations": [
+      "conic sag (~106.6 mm at the edge) not modelled: CAE BaseSolidRevolve fails in this Abaqus install; the model is a flat annulus with the documented OD/ID/thickness"
+    ],
+    "label": "FEA-PROVISIONAL"
   }
 }

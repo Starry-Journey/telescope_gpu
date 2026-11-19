@@ -1,0 +1,32 @@
+{
+  "source_document": "多终端通用望远镜详细设计方案20240408-修订.pdf, 表 2 主镜 M1 设计参数列表 (p.14), 主次镜系统 (p.13)",
+  "documented": {
+    "R_vertex_mm": 7331.0,
+    "conic": -1.02347,
+    "outer_diameter_mm": 2560.0,
+    "clear_aperture_mm": 2500.0,
+    "central_hole_mm": 700.0,
+    "edge_thickness_mm": 260.0,
+    "thickness_ratio": "9:1",
+    "material": "微晶玻璃 (sitall, 标准级)",
+    "cte_per_K": "1e-7 (upper bound from text)",
+    "spec_rms_nm": 15.82,
+    "thermal_range_K": "15..25 degC -> +/-5 K"
+  },
+  "assumed": {
+    "support_layout": "36 axial (6-12-12-6) + 24 lateral (NOT in text)",
+    "lightweighting": "solid annulus (no rib pattern in text)",
+    "E_MPa": 90000.0,
+    "nu": 0.24,
+    "rho_t_mm3": 2.53e-09,
+    "alpha_used_per_K": 1e-07,
+    "pad_patch_mm": [
+      70.0,
+      45.0
+    ]
+  },
+  "limitations": [
+    "conic sag (~106.6 mm at the edge) not modelled: CAE BaseSolidRevolve fails in this Abaqus install; the model is a flat annulus with the documented OD/ID/thickness"
+  ],
+  "label": "FEA-PROVISIONAL"
+}

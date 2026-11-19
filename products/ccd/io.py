@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import base64
 import io
+import json
+from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
@@ -31,6 +33,55 @@ def png_data_url(data: np.ndarray, title: str = "") -> str:
     fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
     plt.close(fig)
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _stretch_limits(data: np.ndarray):
+    lo, hi = np.percentile(data, [1, 99.7])
+    if not np.isfinite(hi) or hi <= lo:
+        positive = data[data > 0]
+        hi = float(positive.max()) if positive.size else 1.0
+        lo = 0.0
+    return float(lo), float(max(hi, lo + 1e-12))
+
+
+def png_data_url_fast(data: np.ndarray, title: str = "") -> str:
+    """Fast percentile-stretched grayscale PNG data URL (no Matplotlib figure).
+
+    ``title`` is accepted for API parity with :func:`png_data_url`; the
+    title is not drawn (the GUI supplies its own captions).  Falls back to the
+    Matplotlib implementation when Pillow is unavailable.
+    """
+    try:
+        from PIL import Image
+    except Exception:  # pragma: no cover - Pillow is a runtime dependency
+        return png_data_url(data, title)
+    arr = np.nan_to_num(np.asarray(data, dtype=float), nan=0.0,
+                        posinf=0.0, neginf=0.0)
+    lo, hi = _stretch_limits(arr)
+    norm = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+    # Match the historical Matplotlib rendering (`origin="lower"`): array row 0
+    # is drawn at the bottom of the image, i.e. the PNG stores it flipped.
+    img = Image.fromarray((np.flipud(norm) * 255.0).astype(np.uint8), mode="L")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=False, compress_level=6)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _json_default(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
+    raise TypeError(f"not JSON serialisable: {type(obj)!r}")
+
+
+def write_json(path: str | Path, payload) -> Path:
+    """Write a JSON export (NumPy scalars/arrays converted automatically)."""
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2, ensure_ascii=False,
+                              default=_json_default), encoding="utf-8")
+    return out
 
 
 def cutout(image: np.ndarray, x: float, y: float, size: int = 64) -> np.ndarray:

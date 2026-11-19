@@ -23,14 +23,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QPixmap, QDesktopServices
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QSettings, QTimer
+from PySide6.QtGui import QPixmap, QDesktopServices, QAction
 from PySide6.QtCore import QUrl
 from desktop.tasks import TaskRunner
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPushButton, QSpinBox, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QDialog,
+    QCheckBox, QToolBar,
 )
 
 DEFOCUS = "-2,-1,0,1,2"
@@ -58,6 +59,71 @@ QStatusBar { background:#0b1117; color:#8aa3bc; border-top:1px solid #263342; }
 QToolBar { background:#0b1117; border:0; spacing:6px; }
 """
 GOOD = "#3fb950"; BAD = "#f85149"; WARN = "#d29922"
+
+
+class ScaledImageLabel(QLabel):
+    """QLabel that keeps the original pixmap and rescales on resize.
+
+    Fixes the "3D view shows nothing" class of bugs: a pixmap scaled to a
+    label size captured while the tab was not laid out (or a 0x0 size) used to
+    become invisible and never recovered.
+    """
+
+    def __init__(self, text="", min_size=(380, 300), parent=None):
+        super().__init__(text, parent)
+        self._source = None
+        self.setAlignment(Qt.AlignCenter)
+        self.setMinimumSize(*min_size)
+        self.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;"
+                           "color:#6b7f94;")
+
+    def set_source_pixmap(self, pix: QPixmap):
+        self._source = pix
+        self._apply()
+
+    def source_pixmap(self):
+        return self._source
+
+    def clear_source(self):
+        self._source = None
+        self.setText("")
+
+    def _apply(self):
+        if self._source is None or self._source.isNull():
+            return
+        size = self.size()
+        target = QSize(max(size.width(), self.minimumWidth()),
+                       max(size.height(), self.minimumHeight()))
+        self.setPixmap(self._source.scaled(target, Qt.KeepAspectRatio,
+                                           Qt.SmoothTransformation))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply()
+
+
+def _writable_dir(*candidates) -> Path:
+    """First candidate directory that can actually be written to."""
+    for cand in candidates:
+        if not cand:
+            continue
+        p = Path(cand)
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            probe = p / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+            return p
+        except Exception:
+            continue
+    return Path.cwd()
+
+
+def _default_export_dir() -> Path:
+    docs = Path.home() / "Documents"
+    return _writable_dir(docs / "TelescopeEngineering" / "exports",
+                         ROOT / "results" / "exports",
+                         Path.cwd() / "telescope_exports")
 
 
 class Worker(QThread):
@@ -198,9 +264,58 @@ class QtApp(QMainWindow):
         root.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
         self.statusBar().showMessage("Ready")
+        self._src_label = QLabel("-")
+        self.statusBar().addPermanentWidget(self._src_label)
+        self._build_menu()
+        self._settings = QSettings("TelescopeEngineering", "QtNative")
+        geo = self._settings.value("geometry")
+        if geo is not None:
+            try:
+                self.restoreGeometry(geo)
+            except Exception:
+                pass
         self._log("Qt GUI started")
 
     # ---------- helpers ----------
+    def _build_menu(self):
+        bar = self.menuBar()
+        m_file = bar.addMenu("文件")
+        act_exp = QAction("导出全部...", self)
+        act_exp.triggered.connect(lambda: self.export_all())
+        m_file.addAction(act_exp)
+        act_open = QAction("打开导出目录", self)
+        act_open.triggered.connect(self.open_export_dir)
+        m_file.addAction(act_open)
+        m_file.addSeparator()
+        act_quit = QAction("退出", self)
+        act_quit.triggered.connect(self.close)
+        m_file.addAction(act_quit)
+        m_view = bar.addMenu("视图")
+        for idx, name in enumerate(["CCD / PSF", "相位差反演", "FEA / 66 项",
+                                    "ZMX", "S / 控制", "演示"]):
+            act = QAction("%d. %s" % (idx + 1, name), self)
+            act.triggered.connect(lambda _=False, i=idx: self.tabs.setCurrentIndex(i))
+            m_view.addAction(act)
+        m_help = bar.addMenu("帮助")
+        act_about = QAction("关于 / 标签说明", self)
+        act_about.triggered.connect(self.show_about)
+        m_help.addAction(act_about)
+
+    def open_export_dir(self):
+        target = _default_export_dir()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+        self.status("打开导出目录 " + str(target), GOOD)
+
+    def show_about(self):
+        QMessageBox.information(
+            self, "关于",
+            "Telescope Engineering · Qt native\n\n"
+            "标签约定：\n"
+            "CORE-VERIFIED / SYNTHETIC-VALIDATED / EXTERNAL-CHECK /\n"
+            "FEA-PROVISIONAL / GUI-BETA / UNVERIFIED\n\n"
+            "数据来源: data/zemax（Zemax ZOS-API 真实求解）、\n"
+            "data/fea_cases（Abaqus 求解）")
+
     def status(self, text, color=GOOD):
         self._log(text)
         self.badge.setText(text.upper() if len(text) < 18 else text)
@@ -241,7 +356,7 @@ class QtApp(QMainWindow):
         if stack.ndim == 2:
             stack = stack[None]
         pix = _frames_png(stack)
-        self.ccd_img.setPixmap(pix.scaled(self.ccd_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.ccd_img.set_source_pixmap(pix)
         self.ccd_img.setToolTip("frames=%s" % (stack.shape,))
 
     def busy(self, text):
@@ -310,6 +425,10 @@ class QtApp(QMainWindow):
         self.status("已取消: " + label, WARN)
 
     def closeEvent(self, event):
+        try:
+            self._settings.setValue("geometry", self.saveGeometry())
+        except Exception:
+            pass
         if self.runner.busy():
             self.runner.cancel()
         super().closeEvent(event)
@@ -345,13 +464,34 @@ class QtApp(QMainWindow):
         w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
         w.start()
 
+    def _export_png(self, pix, path, files, failures):
+        """Save one PNG and record the outcome (never silent)."""
+        if pix is None or pix.isNull():
+            return False
+        try:
+            ok = pix.save(str(path), "PNG")
+        except Exception as exc:            # pragma: no cover - Qt backend
+            ok = False
+            self._log("EXPORT error %s: %s" % (path.name, exc))
+        if ok and path.exists() and path.stat().st_size > 0:
+            files.append(path.name)
+            return True
+        failures.append(path.name)
+        self._log("EXPORT failed " + str(path))
+        return False
+
     def export_all(self, directory=None):
         if directory is None:
-            directory = QFileDialog.getExistingDirectory(self, "选择导出目录")
+            suggested = _default_export_dir() / datetime.now().strftime("%Y%m%d_%H%M%S")
+            directory = QFileDialog.getExistingDirectory(
+                self, "选择导出目录", str(suggested))
         if not directory:
             return None
-        out = Path(directory); out.mkdir(parents=True, exist_ok=True)
+        out = _writable_dir(directory)
+        if out != Path(directory):
+            self._log("EXPORT fallback dir " + str(out))
         files = []
+        failures = []
         try:
             if self.last_ccd:
                 # strip base64 payloads: images are exported as files, metrics stay small
@@ -365,48 +505,49 @@ class QtApp(QMainWindow):
                 np.save(out / "psf_stack.npy", np.asarray(self.psf))
                 files.append("psf_stack.npy")
             if self.star_img.pixmap():
-                self.star_img.pixmap().save(str(out / "star_field.png"), "PNG")
-                files.append("star_field.png")
+                self._export_png(self.star_img.pixmap(), out / "star_field.png", files, failures)
             if self.ccd_img.pixmap():
-                self.ccd_img.pixmap().save(str(out / "psf_montage.png"), "PNG")
-                files.append("psf_montage.png")
+                self._export_png(self.ccd_img.pixmap(), out / "psf_montage.png", files, failures)
             if self.last_pd:
                 (out / "pd_result.json").write_text(
                     json.dumps(self.last_pd, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
                 files.append("pd_result.json")
             if self.pd_img.pixmap():
-                self.pd_img.pixmap().save(str(out / "pd_bar.png"), "PNG")
-                files.append("pd_bar.png")
+                self._export_png(self.pd_img.pixmap(), out / "pd_bar.png", files, failures)
             if self.last_fea:
                 (out / "fea_fit.json").write_text(
                     json.dumps(self.last_fea, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
                 files.append("fea_fit.json")
             if self.fea_img.pixmap():
-                self.fea_img.pixmap().save(str(out / "fea_surface.png"), "PNG")
-                files.append("fea_surface.png")
+                self._export_png(self.fea_img.pixmap(), out / "fea_surface.png", files, failures)
             if self.fea_bar.pixmap():
-                self.fea_bar.pixmap().save(str(out / "fea_bar.png"), "PNG")
-                files.append("fea_bar.png")
+                self._export_png(self.fea_bar.pixmap(), out / "fea_bar.png", files, failures)
             if getattr(self, "fea3d_img", None) is not None and self.fea3d_img.pixmap():
-                self.fea3d_img.pixmap().save(str(out / "fea_3d.png"), "PNG")
-                files.append("fea_3d.png")
+                self._export_png(self.fea3d_img.pixmap(), out / "fea_3d.png", files, failures)
             if getattr(self, "last_s", None):
                 (out / "sensitivity.json").write_text(
                     json.dumps(self.last_s, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
                 files.append("sensitivity.json")
             if hasattr(self, "ctrl_img") and self.ctrl_img.pixmap():
-                self.ctrl_img.pixmap().save(str(out / "sensitivity_heatmap.png"), "PNG")
-                files.append("sensitivity_heatmap.png")
+                self._export_png(self.ctrl_img.pixmap(), out / "sensitivity_heatmap.png", files, failures)
             manifest = {"schema_version": 1, "app": "TelescopeEngineeringQtNative",
                         "exported": datetime.now().isoformat(timespec="seconds"),
                         "inputs": {"ccd_star": (self.last_ccd or {}).get("star"),
                                    "pd_nfev": (self.last_pd or {}).get("nfev"),
                                    "fea_case": ((self.last_fea or {}).get("case") or {}).get("id")},
                         "labels": {"ccd": "SYNTHETIC-VALIDATED", "fea": "FEA-PROVISIONAL"},
-                        "files": files}
+                        "files": files, "failed_files": failures}
             (out / "manifest.json").write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-            self.status("已导出到 " + str(out))
+            if failures:
+                manifest["failed_files"] = failures
+                (out / "manifest.json").write_text(
+                    json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+                self._log("EXPORT partial: failed " + ", ".join(failures))
+                self.status("部分导出失败: " + ",".join(failures), WARN)
+            else:
+                self.status("已导出到 " + str(out), GOOD)
+                self._log("EXPORT ok " + str(out) + " files=" + str(len(files)))
             return out
         except Exception as e:
             box = QMessageBox(QMessageBox.Critical, "导出", str(e), QMessageBox.Ok, self)
@@ -414,27 +555,78 @@ class QtApp(QMainWindow):
             return None
 
     def _save_json(self, obj, default):
-        path, _ = QFileDialog.getSaveFileName(self, "导出 JSON", str(Path(default).with_suffix(".json")),
+        start = str(_default_export_dir() / Path(default).with_suffix(".json").name)
+        path, _ = QFileDialog.getSaveFileName(self, "导出 JSON", start,
                                               "JSON (*.json)")
-        if path:
-            Path(path).write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
-            self.status("已导出 " + path)
+        if not path:
+            return
+        try:
+            Path(path).write_text(json.dumps(obj, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
+            self.status("已导出 " + path, GOOD)
+        except Exception as exc:
+            QMessageBox.warning(self, "导出失败（无写权限）",
+                                "%s\n\n请选择“文档”或“桌面”等可写目录。\n%s"
+                                % (path, exc))
 
     def _save_pixmap(self, label, default):
-        pix = label.pixmap()
-        if pix is None:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "导出 PNG", default, "PNG (*.png)")
-        if path:
-            pix.save(path, "PNG"); self.status("已导出 " + path)
+        """Save a label image, verifying the write and falling back if needed.
+
+        QPixmap.save() returns False (no exception) when the target is not
+        writable, e.g. C:\\Windows or an install dir; the old code ignored that
+        and the user saw nothing happen.
+        """
+        src = label.source_pixmap() if hasattr(label, "source_pixmap") else None
+        pix = src if (src is not None and not src.isNull()) else label.pixmap()
+        if pix is None or pix.isNull():
+            self.status("没有可导出的图像", WARN)
+            return False
+        default_path = str(_default_export_dir() / default)
+        path, _ = QFileDialog.getSaveFileName(self, "导出 PNG", default_path,
+                                              "PNG (*.png)")
+        if not path:
+            return False
+        candidates = [Path(path)]
+        if Path(path).suffix.lower() != ".png":
+            candidates = [Path(path).with_suffix(".png")]
+        fallback = _default_export_dir() / Path(path).name
+        if fallback.resolve() != candidates[0].resolve():
+            candidates.append(fallback)
+        last_err = ""
+        for cand in candidates:
+            try:
+                ok = pix.save(str(cand), "PNG")
+            except Exception as exc:          # pragma: no cover - Qt backend
+                ok, last_err = False, str(exc)
+            if ok and cand.exists() and cand.stat().st_size > 0:
+                self.status("已导出 " + str(cand), GOOD)
+                self._log("EXPORT png " + str(cand))
+                return True
+            last_err = last_err or "无法写入（目录只读或权限不足）"
+        QMessageBox.warning(
+            self, "导出失败",
+            "PNG 写入失败：%s\n\n已尝试:\n%s\n\n请选择“文档”或“桌面”等可写目录。"
+            % (last_err, "\n".join(str(c) for c in candidates)))
+        self.status("导出失败（无写权限）", BAD)
+        return False
 
     def _save_npy(self):
         if self.psf is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "导出 NPY", "psf_stack.npy", "NumPy (*.npy)")
-        if path:
+        default = str(_default_export_dir() / "psf_stack.npy")
+        path, _ = QFileDialog.getSaveFileName(self, "导出 NPY", default, "NumPy (*.npy)")
+        if not path:
+            return
+        try:
             np.save(path, np.asarray(self.psf))
-            self.status("已导出 " + path)
+            self.status("已导出 " + path, GOOD)
+        except Exception as exc:
+            fallback = _default_export_dir() / Path(path).name
+            try:
+                np.save(fallback, np.asarray(self.psf))
+                self.status("已导出到可写目录 " + str(fallback), WARN)
+            except Exception:
+                QMessageBox.warning(self, "导出失败", "%s\n%s" % (path, exc))
 
     # ---------- CCD ----------
     def tab_ccd(self):
@@ -449,6 +641,43 @@ class QtApp(QMainWindow):
         form.addRow("Z4", self.c4); form.addRow("Z8", self.c8); form.addRow("Z9", self.c9)
         form.addRow("噪声 e-", self.noise); form.addRow("星数", self.stars)
         form.addRow("defocus waves", self.defocus_edit)
+
+        phys = QGroupBox("探测器 / 星空物理参数")
+        pf = QFormLayout(phys)
+        self.exposure = QDoubleSpinBox(); self.exposure.setRange(0.01, 600); self.exposure.setValue(1.0)
+        self.exposure.setSuffix(" s")
+        self.read_noise = QDoubleSpinBox(); self.read_noise.setRange(0.1, 100); self.read_noise.setValue(5.0)
+        self.read_noise.setSuffix(" e-")
+        self.sky_bg = QDoubleSpinBox(); self.sky_bg.setRange(0, 1000); self.sky_bg.setValue(1.0)
+        self.sky_bg.setSuffix(" e-/px/s")
+        self.seeing = QDoubleSpinBox(); self.seeing.setRange(0.1, 5.0); self.seeing.setSingleStep(0.05)
+        self.seeing.setValue(0.7); self.seeing.setSuffix(" arcsec")
+        self.plate_scale = QDoubleSpinBox(); self.plate_scale.setDecimals(4)
+        self.plate_scale.setRange(0.005, 2.0); self.plate_scale.setValue(0.05)
+        self.plate_scale.setSuffix(" arcsec/px")
+        self.density = QDoubleSpinBox(); self.density.setRange(0, 200); self.density.setValue(5.0)
+        self.density.setSuffix(" /arcmin2")
+        self.mag_limit = QDoubleSpinBox(); self.mag_limit.setRange(6, 24); self.mag_limit.setValue(16.0)
+        self.fov = QDoubleSpinBox(); self.fov.setRange(0.5, 60); self.fov.setValue(2.56)
+        self.fov.setSuffix(" arcmin")
+        self.bad_px = QDoubleSpinBox(); self.bad_px.setDecimals(4)
+        self.bad_px.setRange(0, 0.05); self.bad_px.setSingleStep(0.0005); self.bad_px.setValue(0.0005)
+        self.cr_rate = QDoubleSpinBox(); self.cr_rate.setDecimals(5)
+        self.cr_rate.setRange(0, 0.01); self.cr_rate.setSingleStep(0.0001); self.cr_rate.setValue(0.0001)
+        self.seed_box = QSpinBox(); self.seed_box.setRange(0, 10 ** 6); self.seed_box.setValue(7)
+        for label, widget in (("曝光", self.exposure),
+                              ("读出噪声", self.read_noise),
+                              ("天空背景", self.sky_bg),
+                              ("视宁度", self.seeing),
+                              ("像元比例", self.plate_scale),
+                              ("星密度", self.density),
+                              ("星等极限", self.mag_limit),
+                              ("视场", self.fov),
+                              ("坏像元比例", self.bad_px),
+                              ("宇宙线率", self.cr_rate),
+                              ("随机种子", self.seed_box)):
+            pf.addRow(label, widget)
+        form.addRow(phys)
         run = QPushButton("生成合成 CCD + 5 帧 PSF"); run.clicked.connect(self.run_ccd)
         fits = QPushButton("上传真实 FITS"); fits.setObjectName("Ghost"); fits.clicked.connect(self.run_fits)
         form.addRow(run); form.addRow(fits)
@@ -462,14 +691,14 @@ class QtApp(QMainWindow):
         srow = QHBoxLayout(); srow.addWidget(QLabel("帧"))
         self.star_combo = QComboBox(); self.star_combo.currentIndexChanged.connect(self.show_star)
         srow.addWidget(self.star_combo, 1); sl.addLayout(srow)
-        self.star_img = QLabel("星场帧"); self.star_img.setAlignment(Qt.AlignCenter)
+        self.star_img = ScaledImageLabel("星场帧", (420, 300))
         self.star_img.setMinimumSize(640, 360)
         self.star_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
         sl.addWidget(self.star_img, 1)
         self.preview_tabs.addTab(star_w, "星空帧")
         # PSF tab
         psf_w = QWidget(); pl = QVBoxLayout(psf_w)
-        self.ccd_img = QLabel("PSF 5 帧"); self.ccd_img.setAlignment(Qt.AlignCenter)
+        self.ccd_img = ScaledImageLabel("PSF 5 帧", (420, 200))
         self.ccd_img.setMinimumSize(640, 360)
         self.ccd_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
         pl.addWidget(self.ccd_img, 1)
@@ -490,16 +719,27 @@ class QtApp(QMainWindow):
     def _defocus(self):
         return [float(x) for x in self.defocus_edit.text().split(",") if x.strip()]
 
-    def run_ccd(self):
-        c4, c8, c9 = self.c4.value(), self.c8.value(), self.c9.value()
-        noise, stars, df = self.noise.value(), self.stars.value(), self._defocus()
+    def _ccd_payload(self):
+        return {
+            "c4": self.c4.value(), "c8": self.c8.value(), "c9": self.c9.value(),
+            "noise": self.noise.value(), "stars": self.stars.value(),
+            "defocus": self._defocus(),
+            "exposure_s": self.exposure.value(),
+            "read_noise_e": self.read_noise.value(),
+            "sky_background_e_per_pix_s": self.sky_bg.value(),
+            "seeing_arcsec": self.seeing.value(),
+            "plate_scale_arcsec_per_pix": self.plate_scale.value(),
+            "star_density_per_arcmin2": self.density.value(),
+            "mag_limit": self.mag_limit.value(),
+            "fov_arcmin": self.fov.value(),
+            "bad_pixel_fraction": self.bad_px.value(),
+            "cosmic_ray_rate": self.cr_rate.value(),
+            "seed": self.seed_box.value(),
+        }
 
-        def fn():
-            from products.ccd.service import run_ccd_pipeline
-            return run_ccd_pipeline(c4, c8, c9, noise, stars, df)
-        self._run_process("ccd", {"c4": c4, "c8": c8, "c9": c9,
-                                  "noise": noise, "stars": stars, "defocus": df},
-                          self._on_ccd, "CCD 合成")
+    def run_ccd(self):
+        payload = self._ccd_payload()
+        self._run_process("ccd", payload, self._on_ccd, "CCD 合成")
 
     def _populate_frames(self, frames):
         self.frames = frames or []
@@ -515,7 +755,7 @@ class QtApp(QMainWindow):
             return
         f = self.frames[idx]
         url = f.get("raw") if isinstance(f, dict) else str(f)
-        self.star_img.setPixmap(_png(url).scaled(self.star_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.star_img.set_source_pixmap(_png(url))
 
     def _save_star(self):
         pix = self.star_img.pixmap()
@@ -530,8 +770,17 @@ class QtApp(QMainWindow):
         self.psf = np.asarray(r["psf"], dtype=float); self.defocus = r["defocus"]
         self._populate_frames(r.get("frames", []))
         self._show_stack(self.psf)
-        self.ccd_log.setPlainText("frames=%s shape=%s\nmetrics=%s" %
-                                  (r["metrics"]["n_frames"], self.psf.shape, r["metrics"]))
+        meta = r.get("meta") or {}
+        self.ccd_log.setPlainText(
+            "frames=%s shape=%s label=%s\n"
+            "stars=%s  seeing=%s\" 曝光=%s s  饱和=%s  坏像元=%s  宇宙线=%s\n"
+            "background=%.1f e-/px  read_noise=%s e-\nmetrics=%s" % (
+                r["metrics"]["n_frames"], self.psf.shape, r.get("label"),
+                meta.get("n_stars_rendered"), meta.get("seeing_arcsec"),
+                meta.get("exposure_s"), meta.get("saturation_count"),
+                meta.get("bad_pixel_count"), meta.get("cosmic_ray_count"),
+                float(meta.get("background_e_per_pix") or 0.0),
+                meta.get("read_noise_e"), r["metrics"]))
 
     def run_fits(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select FITS", "", "FITS (*.fits *.fit)")
@@ -599,15 +848,13 @@ class QtApp(QMainWindow):
         row.addWidget(QLabel("工况")); row.addWidget(self.case_box, 1)
         row.addWidget(refresh); row.addWidget(upload)
         lay.addLayout(row)
-        self.fea_img = QLabel(); self.fea_img.setAlignment(Qt.AlignCenter)
-        self.fea_img.setMinimumSize(720, 420); self.fea_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;")
-        self.fea3d_img = QLabel("3D 结构视图（点击按钮生成）")
-        self.fea3d_img.setAlignment(Qt.AlignCenter)
-        self.fea3d_img.setMinimumSize(380, 300)
-        self.fea3d_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
+        self.fea_img = ScaledImageLabel("FEA 面形", (720, 420))
+        self.fea3d_img = ScaledImageLabel("3D 结构视图（加载工况后自动生成）", (380, 300))
         img_row = QHBoxLayout()
         img_row.addWidget(self.fea_img, 3)
         img_row.addWidget(self.fea3d_img, 2)
+        self.structure_img = ScaledImageLabel("FEA 模型结构（点击生成）", (380, 300))
+        img_row.addWidget(self.structure_img, 2)
         lay.addLayout(img_row, 3)
         self.fea_bar = QLabel("Zernike 柱状图")
         self.fea_bar.setAlignment(Qt.AlignCenter)
@@ -615,6 +862,13 @@ class QtApp(QMainWindow):
         self.fea_bar.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
         lay.addWidget(self.fea_bar, 2)
         bar = QHBoxLayout()
+        self.auto3d = QCheckBox("加载后自动 3D")
+        self.auto3d.setChecked(True)
+        row.addWidget(self.auto3d)
+        struct = QPushButton("FEA 模型结构")
+        struct.setObjectName("Ghost")
+        struct.clicked.connect(self.run_fea_structure)
+        row.addWidget(struct)
         viz = QPushButton("3D 结构视图"); viz.clicked.connect(self.run_fea3d)
         vpng = QPushButton("导出 3D PNG"); vpng.setObjectName("Ghost")
         vpng.clicked.connect(lambda: self._save_pixmap(self.fea3d_img, "fea_3d.png"))
@@ -650,8 +904,13 @@ class QtApp(QMainWindow):
     def _remember_fea_xyz(self, d, raw=None):
         """Keep node arrays (mm/mm/nm) so the 3D button has data to render."""
         if raw and len(raw.get("x") or []) >= 4:
-            self._fea_xyz = {"x": raw["x"], "y": raw["y"], "z": raw["z"],
-                             "label": raw.get("label") or "uploaded"}
+            case = (d or {}).get("case") or {}
+            self._fea_xyz = {
+                "x": raw["x"], "y": raw["y"], "z": raw["z"],
+                "label": raw.get("label") or "uploaded",
+                "obscuration": float(case.get("obscuration_ratio") or 0.0),
+                "aperture_radius_mm": float(case.get("aperture_radius_mm") or 0.0),
+            }
             return
         try:
             g = d.get("grid") or {}
@@ -666,16 +925,19 @@ class QtApp(QMainWindow):
             xx, yy = np.meshgrid(gx, gy)
             xx, yy = xx.ravel(), yy.ravel()
             ok = np.isfinite(vals)
+            case = d.get("case") or {}
             self._fea_xyz = {"x": xx[ok].tolist(), "y": yy[ok].tolist(),
                              "z": vals[ok].tolist(),
-                             "label": str((d.get("case") or {}).get("id") or "FEA")}
+                             "label": str(case.get("id") or "FEA"),
+                             "obscuration": float(case.get("obscuration_ratio") or 0.0),
+                             "aperture_radius_mm": float(case.get("aperture_radius_mm") or 0.0)}
         except Exception:
             self._fea_xyz = None
 
     def _on_fea(self, d, raw=None):
         self.last_fea = d
         self._remember_fea_xyz(d, raw)
-        self.fea_img.setPixmap(_fea_png(d).scaled(self.fea_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.fea_img.set_source_pixmap(_fea_png(d))
         self.fea_log.setPlainText("case=%s\nsynthetic=%s targets=%s\nresidual=%s" %
                                   (d["case"].get("id"), d["case"].get("synthetic"),
                                    d["fit"]["targets_nm"], d["fit"]["residual_rms_nm"]))
@@ -687,8 +949,45 @@ class QtApp(QMainWindow):
                 self.fea_bar.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         except Exception as e:
             self.fea_log.append("bar error: " + str(e))
-        # a new surface invalidates the previous 3D render
-        self.fea3d_img.setText("3D 结构视图（点击按钮生成）")
+        # a new surface invalidates the previous 3D render; auto-render if asked
+        self.fea3d_img.clear_source()
+        self.fea3d_img.setText("3D 结构视图（正在生成…）")
+        if getattr(self, "auto3d", None) is not None and self.auto3d.isChecked():
+            self.run_fea3d()
+
+    def run_fea_structure(self):
+        """Render the FEA mirror model (documented geometry + support pads)."""
+        case = (self.last_fea or {}).get("case") or {}
+        r_outer = float(case.get("aperture_radius_mm") or 1280.0)
+        obsc = float(case.get("obscuration_ratio") or (700.0 / 2560.0))
+        payload = {
+            "outer_radius_mm": r_outer,
+            "inner_radius_mm": max(r_outer * obsc, 1.0),
+            "thickness_mm": 260.0,
+            "support_rings": [[375.0, 6], [625.0, 12], [875.0, 12], [1125.0, 6]],
+            "side_supports": 24,
+            "label": str(case.get("id") or "M1"),
+        }
+        self._run_process("fea_structure", payload, self._on_fea_structure,
+                          "FEA 模型结构")
+
+    def _on_fea_structure(self, r):
+        import base64 as _b64
+        try:
+            pix = QPixmap(); pix.loadFromData(_b64.b64decode(r["png3d_b64"]))
+            if pix.isNull():
+                raise ValueError("PNG decode failed")
+        except Exception as exc:
+            self.fea_log.append("structure error: " + str(exc))
+            return
+        self.structure_img.set_source_pixmap(pix)
+        geo = r.get("geometry") or {}
+        self.fea_log.append(
+            "structure: %s OD=%.0f ID=%.0f t=%.0f pads=%s/%s (%s)" % (
+                r.get("label"), geo.get("outer_radius_mm", 0) * 2,
+                geo.get("inner_radius_mm", 0) * 2, geo.get("thickness_mm", 0),
+                geo.get("axial_pads"), geo.get("lateral_pads"),
+                r.get("note", "")))
 
     def run_fea3d(self):
         data = getattr(self, "_fea_xyz", None) or {}
@@ -698,7 +997,9 @@ class QtApp(QMainWindow):
             return
         payload = {"x": data["x"], "y": data["y"], "z": data["z"],
                    "label": data.get("label") or "FEA",
-                   "azim": -60, "elev": 25}
+                   "azim": -60, "elev": 25,
+                   "obscuration": float(data.get("obscuration") or 0.0),
+                   "aperture_radius_mm": float(data.get("aperture_radius_mm") or 0.0)}
         self._run_process("fea_viz", payload, self._on_fea3d, "FEA 3D")
 
     def _on_fea3d(self, r):
@@ -712,8 +1013,7 @@ class QtApp(QMainWindow):
             self.fea_log.append("3D error: " + str(e))
             self.status("3D 视图失败", BAD)
             return
-        self.fea3d_img.setPixmap(pix.scaled(self.fea3d_img.size(), Qt.KeepAspectRatio,
-                                            Qt.SmoothTransformation))
+        self.fea3d_img.set_source_pixmap(pix)
         st = r.get("stats") or {}
         try:
             rms = float(st.get("rms_nm", float("nan")))
@@ -745,7 +1045,21 @@ class QtApp(QMainWindow):
         btn = QPushButton("选择 ZMX 并解析"); btn.clicked.connect(self.load_zmx)
         row = QHBoxLayout(); row.addWidget(btn); row.addStretch(1)
         lay.addLayout(row)
+        img_row = QHBoxLayout()
+        self.zmx_img = ScaledImageLabel("ZMX 二维光路（选择 ZMX 后生成）", (420, 300))
+        self.zmx3d_img = ScaledImageLabel("ZMX 三维光路（选择 ZMX 后生成）", (420, 300))
+        img_row.addWidget(self.zmx_img, 1)
+        img_row.addWidget(self.zmx3d_img, 1)
+        lay.addLayout(img_row, 3)
+        exp = QHBoxLayout()
+        b2 = QPushButton("导出 2D 光路"); b2.setObjectName("Ghost")
+        b2.clicked.connect(lambda: self._save_pixmap(self.zmx_img, "zmx_layout_2d.png"))
+        b3 = QPushButton("导出 3D 光路"); b3.setObjectName("Ghost")
+        b3.clicked.connect(lambda: self._save_pixmap(self.zmx3d_img, "zmx_layout_3d.png"))
+        exp.addWidget(b2); exp.addWidget(b3); exp.addStretch(1)
+        lay.addLayout(exp)
         self.zmx_log = QTextEdit(); self.zmx_log.setReadOnly(True)
+        self.zmx_log.setMaximumHeight(160)
         lay.addWidget(self.zmx_log, 1)
         return w
 
@@ -771,9 +1085,29 @@ class QtApp(QMainWindow):
 
     def _on_zmx(self, r):
         name, d = r
-        self.zmx_log.setPlainText("name=%s\nEPD=%s stop=%s surfaces=%d\nwavelengths=%d" %
-                                  (name, d.get("aperture_mm"), d.get("stop"),
-                                   len(d.get("surfaces", [])), len(d.get("wavelengths_um", []))))
+        self.last_zmx = {"name": name, "parsed": d}
+        self.zmx_log.setPlainText(
+            "name=%s\nEPD=%s stop=%s surfaces=%d\nwavelengths=%d" %
+            (name, d.get("aperture_mm"), d.get("stop"),
+             len(d.get("surfaces", [])), len(d.get("wavelengths_um", []))))
+        self._run_process("zmx_layout", {"parsed": d}, self._on_zmx_layout, "ZMX 光路")
+
+    def _on_zmx_layout(self, r):
+        import base64 as _b64
+        for key, attr, tag in (("png2d_b64", "zmx_img", "2D"),
+                               ("png3d_b64", "zmx3d_img", "3D")):
+            raw = r.get(key)
+            if not raw:
+                continue
+            pix = QPixmap(); pix.loadFromData(_b64.b64decode(raw))
+            label = getattr(self, attr, None)
+            if label is not None and not pix.isNull():
+                label.set_source_pixmap(pix)
+        self.zmx_log.append("layout: track=%s mm stop=%s surfaces=%s" %
+                            (r.get("track_mm"), r.get("stop"),
+                             len(r.get("surfaces") or [])))
+        for note in (r.get("notes") or [])[:5]:
+            self.zmx_log.append("note: " + str(note))
 
     # ---------- S/control ----------
     def tab_ctrl(self):
