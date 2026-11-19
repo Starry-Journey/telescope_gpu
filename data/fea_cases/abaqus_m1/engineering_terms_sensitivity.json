@@ -1,0 +1,616 @@
+{
+  "targets": [
+    "Z4",
+    "Z5",
+    "Z6",
+    "Z8",
+    "Z9",
+    "Z11"
+  ],
+  "terms": [
+    "Z4",
+    "Z5",
+    "Z6",
+    "Z8",
+    "Z9",
+    "Z11"
+  ],
+  "controls": [
+    "gravity_deg",
+    "thermal_K"
+  ],
+  "units": [
+    "waves/deg",
+    "waves/K"
+  ],
+  "matrix": [
+    [
+      -0.006681335596992288,
+      2.9018921690719237e-06
+    ],
+    [
+      -2.394683540737195e-05,
+      -3.031218399513918e-07
+    ],
+    [
+      4.544781185790913e-05,
+      -7.4308715571279e-07
+    ],
+    [
+      2.0681578468844424e-05,
+      -1.3159262725987201e-07
+    ],
+    [
+      1.0147585922930073e-06,
+      1.2825383166189592e-08
+    ],
+    [
+      0.0008890467382775955,
+      -5.040975457362022e-05
+    ]
+  ],
+  "shape": [
+    6,
+    2
+  ],
+  "rank": 2,
+  "condition": 135.91720660535387,
+  "singular_values": [
+    0.006740460517957143,
+    4.959240030240315e-05
+  ],
+  "nullspace": 0,
+  "observability": {
+    "shape": [
+      6,
+      2
+    ],
+    "targets": [
+      "Z4",
+      "Z5",
+      "Z6",
+      "Z8",
+      "Z9",
+      "Z11"
+    ],
+    "dofs": [
+      "gravity_deg",
+      "thermal_K"
+    ],
+    "rel_threshold": 0.05,
+    "global_max": 0.006681335596992288,
+    "threshold_abs": 0.0003340667798496144,
+    "per_dof_max": {
+      "gravity_deg": 0.006681335596992288,
+      "thermal_K": 5.040975457362022e-05
+    },
+    "per_target_max": {
+      "Z4": 0.006681335596992288,
+      "Z5": 2.394683540737195e-05,
+      "Z6": 4.544781185790913e-05,
+      "Z8": 2.0681578468844424e-05,
+      "Z9": 1.0147585922930073e-06,
+      "Z11": 0.0008890467382775955
+    },
+    "per_dof_max_values": [
+      0.006681335596992288,
+      5.040975457362022e-05
+    ],
+    "per_target_max_values": [
+      0.006681335596992288,
+      2.394683540737195e-05,
+      4.544781185790913e-05,
+      2.0681578468844424e-05,
+      1.0147585922930073e-06,
+      0.0008890467382775955
+    ],
+    "per_dof": {
+      "gravity_deg": {
+        "max_abs": 0.006681335596992288,
+        "relative_to_global": 1.0,
+        "max_target": "Z4",
+        "observable": true
+      },
+      "thermal_K": {
+        "max_abs": 5.040975457362022e-05,
+        "relative_to_global": 0.007544861927952398,
+        "max_target": "Z11",
+        "observable": false
+      }
+    },
+    "per_target": {
+      "Z4": {
+        "max_abs": 0.006681335596992288,
+        "relative_to_global": 1.0,
+        "max_dof": "gravity_deg",
+        "observable": true
+      },
+      "Z5": {
+        "max_abs": 2.394683540737195e-05,
+        "relative_to_global": 0.003584138988341194,
+        "max_dof": "gravity_deg",
+        "observable": false
+      },
+      "Z6": {
+        "max_abs": 4.544781185790913e-05,
+        "relative_to_global": 0.0068022046188442025,
+        "max_dof": "gravity_deg",
+        "observable": false
+      },
+      "Z8": {
+        "max_abs": 2.0681578468844424e-05,
+        "relative_to_global": 0.0030954257825567947,
+        "max_dof": "gravity_deg",
+        "observable": false
+      },
+      "Z9": {
+        "max_abs": 1.0147585922930073e-06,
+        "relative_to_global": 0.00015187960214868077,
+        "max_dof": "gravity_deg",
+        "observable": false
+      },
+      "Z11": {
+        "max_abs": 0.0008890467382775955,
+        "relative_to_global": 0.1330642242664497,
+        "max_dof": "gravity_deg",
+        "observable": true
+      }
+    },
+    "observable_dofs": [
+      "gravity_deg"
+    ],
+    "unobservable_dofs": [
+      "thermal_K"
+    ],
+    "observable_targets": [
+      "Z4",
+      "Z11"
+    ],
+    "dropped_rows": [
+      "Z5",
+      "Z6",
+      "Z8",
+      "Z9"
+    ],
+    "dropped_row_indices": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "dropped_cols": [
+      "thermal_K"
+    ],
+    "dropped_col_indices": [
+      1
+    ],
+    "kept_rows": [
+      0,
+      5
+    ],
+    "kept_cols": [
+      0
+    ],
+    "rank": 2,
+    "condition": 135.91720660535387,
+    "singular_values": [
+      0.006740460517957143,
+      4.959240030240315e-05
+    ],
+    "nullspace": 0,
+    "reduced": {
+      "matrix": [
+        [
+          -0.006681335596992288
+        ],
+        [
+          0.0008890467382775955
+        ]
+      ],
+      "targets": [
+        "Z4",
+        "Z11"
+      ],
+      "dofs": [
+        "gravity_deg"
+      ],
+      "shape": [
+        2,
+        1
+      ],
+      "rank": 1,
+      "condition": 1.0,
+      "singular_values": [
+        0.0067402262174557845
+      ],
+      "nullspace": 0
+    },
+    "reduced_matrix": [
+      [
+        -0.006681335596992288
+      ],
+      [
+        0.0008890467382775955
+      ]
+    ],
+    "reduced_targets": [
+      "Z4",
+      "Z11"
+    ],
+    "reduced_dofs": [
+      "gravity_deg"
+    ],
+    "reduced_shape": [
+      2,
+      1
+    ],
+    "reduced_rank": 1,
+    "reduced_condition": 1.0,
+    "rationale": "Relative threshold 0.05 x global max |S| 0.00668134 = 0.000334067. The analysis dropped target row(s) ['Z5', 'Z6', 'Z8', 'Z9'] because the strongest DOF response stays below 0.000334067 (per-target maxima [2.4e-05, 4.5e-05, 2.1e-05, 1e-06]) and dropped DOF column(s) ['thermal_K'] because no retained target is driven above 0.000334067 (per-DOF maxima [5e-05]). Reduced matrix is 2 x 1 (targets x DOFs), rank 1, condition 1; full matrix rank 2, condition 135.917. Engineering rule: a DOF that is nearly blind to a target must not keep that target row in the compensation matrix, otherwise the solve amplifies noise along an unobservable direction.",
+    "note": "S[i, j] = dz_i / du_j; row/column removal is relative to the global max |S|; empty reduced matrix means no direction is observable at this threshold"
+  },
+  "dropped_rows": [
+    "Z5",
+    "Z6",
+    "Z8",
+    "Z9"
+  ],
+  "dropped_cols": [
+    "thermal_K"
+  ],
+  "observable_dofs": [
+    "gravity_deg"
+  ],
+  "reduced_matrix": [
+    [
+      -0.006681335596992288
+    ],
+    [
+      0.0008890467382775955
+    ]
+  ],
+  "reduced_targets": [
+    "Z4",
+    "Z11"
+  ],
+  "reduced_dofs": [
+    "gravity_deg"
+  ],
+  "astigmatism": {
+    "Z5_nm": -1.3642765565397852,
+    "Z6_nm": 2.598846456405088,
+    "magnitude_nm": 2.9351751952299776,
+    "magnitude_waves_surface": 0.004638393165660521,
+    "magnitude_waves_wavefront": 0.009276786331321042,
+    "orientation_deg": 117.69743626171594,
+    "orientation_deg_360": 117.69743626171594,
+    "astigmatism_axis_deg": 58.84871813085797,
+    "correction_axis_deg": 148.84871813085797,
+    "case": "M1_abq_gravity_90deg",
+    "worst_case": "M1_abq_gravity_90deg",
+    "per_case": {
+      "M1_abq_gravity_0deg": {
+        "Z5_nm": -0.0004563864191380884,
+        "Z6_nm": 0.010502675473447909,
+        "magnitude_nm": 0.010512586773203728,
+        "magnitude_waves_surface": 1.6612810956390215e-05,
+        "magnitude_waves_wavefront": 3.322562191278043e-05,
+        "orientation_deg": 92.48818269943143,
+        "orientation_deg_360": 92.48818269943143,
+        "astigmatism_axis_deg": 46.24409134971572,
+        "correction_axis_deg": 136.24409134971572
+      },
+      "M1_abq_gravity_90deg": {
+        "Z5_nm": -1.3642765565397852,
+        "Z6_nm": 2.598846456405088,
+        "magnitude_nm": 2.9351751952299776,
+        "magnitude_waves_surface": 0.004638393165660521,
+        "magnitude_waves_wavefront": 0.009276786331321042,
+        "orientation_deg": 117.69743626171594,
+        "orientation_deg_360": 117.69743626171594,
+        "astigmatism_axis_deg": 58.84871813085797,
+        "correction_axis_deg": 148.84871813085797
+      },
+      "M1_abq_thermal_plus20K": {
+        "Z5_nm": -0.0038363100064248146,
+        "Z6_nm": -0.00940451104270107,
+        "magnitude_nm": 0.010156874638277344,
+        "magnitude_waves_surface": 1.605068684936369e-05,
+        "magnitude_waves_wavefront": 3.210137369872738e-05,
+        "orientation_deg": -112.191644072283,
+        "orientation_deg_360": 247.808355927717,
+        "astigmatism_axis_deg": 123.9041779638585,
+        "correction_axis_deg": 33.9041779638585
+      },
+      "M1_abq_thermal_minus20K": {
+        "Z5_nm": 0.0038363100064248146,
+        "Z6_nm": 0.00940451104270107,
+        "magnitude_nm": 0.010156874638277344,
+        "magnitude_waves_surface": 1.605068684936369e-05,
+        "magnitude_waves_wavefront": 3.210137369872738e-05,
+        "orientation_deg": 67.808355927717,
+        "orientation_deg_360": 67.808355927717,
+        "astigmatism_axis_deg": 33.9041779638585,
+        "correction_axis_deg": 123.9041779638585
+      },
+      "M1_abq_thermal_grad20K": {
+        "Z5_nm": -0.07992329813747112,
+        "Z6_nm": 0.19836984429112015,
+        "magnitude_nm": 0.21386521154515606,
+        "magnitude_waves_surface": 0.00033796651634822387,
+        "magnitude_waves_wavefront": 0.0006759330326964477,
+        "orientation_deg": 111.944527377178,
+        "orientation_deg_360": 111.944527377178,
+        "astigmatism_axis_deg": 55.972263688589,
+        "correction_axis_deg": 145.972263688589
+      }
+    },
+    "wavelength_nm": 632.8,
+    "orientation_convention": "orientation_deg = atan2(Z6, Z5) in degrees on the surface-nm coefficients; the physical mirror azimuth of the high lobe is astigmatism_axis_deg = 0.5 * orientation_deg mod 180",
+    "note": "absolute FEA coefficients (surface nm) of the M1 plate; the worst-magnitude case drives the adjustment plan"
+  },
+  "zernike_nm": {
+    "M1_abq_gravity_0deg": {
+      "Z4": -0.011879440381669076,
+      "Z5": -0.0004563864191380884,
+      "Z6": 0.010502675473447909,
+      "Z8": -0.10708017346936813,
+      "Z9": 0.013021810374984955,
+      "Z11": -0.004452878237280744
+    },
+    "M1_abq_gravity_90deg": {
+      "Z4": -380.52730436028645,
+      "Z5": -1.3642765565397852,
+      "Z6": 2.598846456405088,
+      "Z8": 1.0707770834882595,
+      "Z9": 0.07081434172325629,
+      "Z11": 50.62853696014834
+    },
+    "M1_abq_thermal_plus20K": {
+      "Z4": 0.036726347291774264,
+      "Z5": -0.0038363100064248146,
+      "Z6": -0.00940451104270107,
+      "Z8": -0.0016654362906009402,
+      "Z9": 0.00016231804935129546,
+      "Z11": -0.6379858538837375
+    },
+    "M1_abq_thermal_minus20K": {
+      "Z4": -0.036726347291774264,
+      "Z5": 0.0038363100064248146,
+      "Z6": 0.00940451104270107,
+      "Z8": 0.0016654362906009402,
+      "Z9": -0.00016231804935129546,
+      "Z11": 0.6379858538837375
+    },
+    "M1_abq_thermal_grad20K": {
+      "Z4": 81.59682162155687,
+      "Z5": -0.07992329813747112,
+      "Z6": 0.19836984429112015,
+      "Z8": -0.05744621880794165,
+      "Z9": -0.036158153476542054,
+      "Z11": -14.423196785942134
+    }
+  },
+  "method": "Abaqus 2025 plate model (M1 whiffletree), 66-term Zernike fit",
+  "source": "abaqus",
+  "model": "abq-m1-spring-whiffletree",
+  "label": "FEA-PROVISIONAL",
+  "source_cases": [
+    "M1_abq_gravity_0deg",
+    "M1_abq_gravity_90deg",
+    "M1_abq_thermal_plus20K",
+    "M1_abq_thermal_minus20K",
+    "M1_abq_thermal_grad20K"
+  ],
+  "warning": "Real Abaqus solve with idealized spring whiffletree and plate-level geometry; the 6-term fit exposes Z5/Z6 but the magnitudes are support-stiffness dependent -- use for experiment design, not as a compliance claim",
+  "note": "S[:, j] is in waves per column unit (surface nm / 632.8); the per-case zernike_nm table is the absolute surface state the astigmatism plan is derived from",
+  "astigmatism_plan": {
+    "label": "FEA-PROVISIONAL",
+    "warning": "FEA-PROVISIONAL: this plan is derived from the Abaqus/FEA surface fit and the assumed mechanism kinematics (spring-whiffletree M1 plate, plate-level geometry, idealized pad stiffness). It is for experiment design and mount/adjuster pre-setting only; the astigmatism amplitude, orientation and sign must be confirmed on the bench before it is used as a compliance or alignment claim.",
+    "case": "M1_abq_gravity_90deg",
+    "Z5_nm": -1.3642765565397852,
+    "Z6_nm": 2.598846456405088,
+    "magnitude_nm": 2.9351751952299776,
+    "magnitude_waves_surface": 0.004638393165660521,
+    "magnitude_waves_wavefront": 0.009276786331321042,
+    "orientation_deg": 117.69743626171594,
+    "orientation_deg_360": 117.69743626171594,
+    "orientation_rad": 2.0542077839231094,
+    "astigmatism_axis_deg": 58.84871813085797,
+    "correction_axis_deg": 148.84871813085797,
+    "wavelength_nm": 632.8,
+    "orientation_convention": "orientation_deg = atan2(Z6, Z5) in degrees; Z5 is the cos(2t) and Z6 the sin(2t) coefficient, so the physical mirror azimuth of the high lobe is astigmatism_axis_deg = orientation_deg / 2 mod 180; correction_axis_deg = astigmatism_axis_deg + 90 mod 180",
+    "units": "surface nm (wavefront = 2x surface for a reflection)",
+    "astigmatism": {
+      "Z5_nm": -1.3642765565397852,
+      "Z6_nm": 2.598846456405088,
+      "magnitude_nm": 2.9351751952299776,
+      "magnitude_waves_surface": 0.004638393165660521,
+      "magnitude_waves_wavefront": 0.009276786331321042,
+      "orientation_deg": 117.69743626171594,
+      "astigmatism_axis_deg": 58.84871813085797,
+      "correction_axis_deg": 148.84871813085797,
+      "case": "M1_abq_gravity_90deg"
+    },
+    "source_case": "M1_abq_gravity_90deg",
+    "mechanism_dofs": [
+      "m2_focus",
+      "m2_decenter_x",
+      "m2_decenter_y",
+      "m2_tilt_x",
+      "m2_tilt_y"
+    ],
+    "dofs": [
+      "m2_focus",
+      "m2_decenter_x",
+      "m2_decenter_y",
+      "m2_tilt_x",
+      "m2_tilt_y"
+    ],
+    "dof_details": {
+      "m2_focus": {
+        "name": "m2_focus",
+        "can_correct": false,
+        "kind": "Z4",
+        "sensitivity_Z5": null,
+        "sensitivity_Z6": null,
+        "sensitivity_norm": null,
+        "reason": "blind to Z5/Z6 by kinematics ('focus')"
+      },
+      "m2_decenter_x": {
+        "name": "m2_decenter_x",
+        "can_correct": false,
+        "kind": "Z8",
+        "sensitivity_Z5": null,
+        "sensitivity_Z6": null,
+        "sensitivity_norm": null,
+        "reason": "blind to Z5/Z6 by kinematics ('decenter')"
+      },
+      "m2_decenter_y": {
+        "name": "m2_decenter_y",
+        "can_correct": false,
+        "kind": "Z9",
+        "sensitivity_Z5": null,
+        "sensitivity_Z6": null,
+        "sensitivity_norm": null,
+        "reason": "blind to Z5/Z6 by kinematics ('decenter')"
+      },
+      "m2_tilt_x": {
+        "name": "m2_tilt_x",
+        "can_correct": false,
+        "kind": "交叉项",
+        "sensitivity_Z5": null,
+        "sensitivity_Z6": null,
+        "sensitivity_norm": null,
+        "reason": "blind to Z5/Z6 by kinematics ('tilt')"
+      },
+      "m2_tilt_y": {
+        "name": "m2_tilt_y",
+        "can_correct": false,
+        "kind": "交叉项",
+        "sensitivity_Z5": null,
+        "sensitivity_Z6": null,
+        "sensitivity_norm": null,
+        "reason": "blind to Z5/Z6 by kinematics ('tilt')"
+      }
+    },
+    "can_correct": [],
+    "cannot_correct": [
+      "m2_focus",
+      "m2_decenter_x",
+      "m2_decenter_y",
+      "m2_tilt_x",
+      "m2_tilt_y"
+    ],
+    "dofs_can_correct": [],
+    "dofs_cannot_correct": [
+      "m2_focus",
+      "m2_decenter_x",
+      "m2_decenter_y",
+      "m2_tilt_x",
+      "m2_tilt_y"
+    ],
+    "observable_dofs": [],
+    "blind_dofs": [
+      "m2_focus",
+      "m2_decenter_x",
+      "m2_decenter_y",
+      "m2_tilt_x",
+      "m2_tilt_y"
+    ],
+    "drop_astigmatism_row": true,
+    "recommended_dropped_rows": [
+      "Z5",
+      "Z6"
+    ],
+    "compensation_matrix_note": "drop the Z5/Z6 rows from the mechanism compensation matrix: no listed DOF drives them above the relative threshold",
+    "adjuster_count": 4,
+    "adjuster_type": "4-point axial astigmatism corrector (push-pull pairs)",
+    "mount_recommendation": "Mount the corrector on the M1 mirror back support ring (the Abaqus whiffletree structure) -- not on the M2 translation/tilt stages, which are blind to Z5/Z6.",
+    "azimuths_deg": [
+      148.85,
+      238.85,
+      328.85,
+      58.85
+    ],
+    "adjusters": [
+      {
+        "azimuth_deg": 148.85,
+        "polarity": "+",
+        "first_iteration_step_nm_surface": 1.4675875976149888,
+        "first_iteration_step_waves_surface": 0.0023191965828302605
+      },
+      {
+        "azimuth_deg": 238.85,
+        "polarity": "-",
+        "first_iteration_step_nm_surface": 1.4675875976149888,
+        "first_iteration_step_waves_surface": 0.0023191965828302605
+      },
+      {
+        "azimuth_deg": 328.85,
+        "polarity": "+",
+        "first_iteration_step_nm_surface": 1.4675875976149888,
+        "first_iteration_step_waves_surface": 0.0023191965828302605
+      },
+      {
+        "azimuth_deg": 58.85,
+        "polarity": "-",
+        "first_iteration_step_nm_surface": 1.4675875976149888,
+        "first_iteration_step_waves_surface": 0.0023191965828302605
+      }
+    ],
+    "step": {
+      "fraction_of_astigmatism_amplitude": 0.5,
+      "step_nm_surface": 1.4675875976149888,
+      "step_waves_surface": 0.0023191965828302605,
+      "step_waves_wavefront": 0.004638393165660521,
+      "iterations_planned": 2,
+      "target_residual_nm_surface": 0.29351751952299776,
+      "convergence": "re-fit Z5/Z6 after each iteration and repeat until the residual astigmatism is at or below the target"
+    },
+    "iterations": 2,
+    "target_residual_nm_surface": 0.29351751952299776,
+    "preferred_dofs": [],
+    "recommendation": "FEA-PROVISIONAL: worst-case M1_abq_gravity_90deg astigmatism is Z5=-1.3643 nm, Z6=2.5988 nm surface (|A|=2.9352 nm = 0.00464 waves surface, 0.00928 waves wavefront @632.8 nm). Astigmatism high lobe is on the 58.8 deg mirror azimuth, so the correction lobes are at 148.8 deg. None of the listed mechanism DOFs can generate Z5/Z6 (blind: ['m2_focus', 'm2_decenter_x', 'm2_decenter_y', 'm2_tilt_x', 'm2_tilt_y']), so the Z5/Z6 rows must be dropped from that compensation matrix and a dedicated corrector added. Recommended: 4-point axial astigmatism corrector at azimuths 148.8, 238.8, 328.8, 58.8 deg with alternating push-pull (+ - + -); first step 1.4676 nm surface (0.00232 waves) per iteration, 2 iterations, target residual <= 0.2935 nm surface. Mount the corrector on the M1 mirror back support ring (the Abaqus whiffletree structure) -- not on the M2 translation/tilt stages, which are blind to Z5/Z6. Convert the nm step to shim/actuator travel with a bench-measured influence coefficient and confirm the sign on the bench before committing.",
+    "method": "FEA Z5/Z6 surface fit -> atan2 orientation -> relative observability of mechanism DOFs -> adjuster count/azimuth/step sizing",
+    "source": "abaqus",
+    "model": "abq-m1-spring-whiffletree",
+    "per_case": {
+      "M1_abq_gravity_0deg": {
+        "Z5_nm": -0.0004563864191380884,
+        "Z6_nm": 0.010502675473447909,
+        "magnitude_nm": 0.010512586773203728,
+        "orientation_deg": 92.48818269943143,
+        "astigmatism_axis_deg": 46.24409134971572
+      },
+      "M1_abq_gravity_90deg": {
+        "Z5_nm": -1.3642765565397852,
+        "Z6_nm": 2.598846456405088,
+        "magnitude_nm": 2.9351751952299776,
+        "orientation_deg": 117.69743626171594,
+        "astigmatism_axis_deg": 58.84871813085797
+      },
+      "M1_abq_thermal_plus20K": {
+        "Z5_nm": -0.0038363100064248146,
+        "Z6_nm": -0.00940451104270107,
+        "magnitude_nm": 0.010156874638277344,
+        "orientation_deg": -112.191644072283,
+        "astigmatism_axis_deg": 123.9041779638585
+      },
+      "M1_abq_thermal_minus20K": {
+        "Z5_nm": 0.0038363100064248146,
+        "Z6_nm": 0.00940451104270107,
+        "magnitude_nm": 0.010156874638277344,
+        "orientation_deg": 67.808355927717,
+        "astigmatism_axis_deg": 33.9041779638585
+      },
+      "M1_abq_thermal_grad20K": {
+        "Z5_nm": -0.07992329813747112,
+        "Z6_nm": 0.19836984429112015,
+        "magnitude_nm": 0.21386521154515606,
+        "orientation_deg": 111.944527377178,
+        "astigmatism_axis_deg": 55.972263688589
+      }
+    }
+  }
+}

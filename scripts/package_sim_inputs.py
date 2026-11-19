@@ -57,7 +57,8 @@ def main() -> int:
 
     fea_src = ROOT / "data" / "fea_cases"
     n_csv = copy_tree(fea_src / "abaqus_m1", out / "fea", ("*_top.csv",))
-    for name in ("manifest.json", "fit_summary.json", "sensitivity_k_sweep.json"):
+    for name in ("manifest.json", "fit_summary.json", "sensitivity_k_sweep.json",
+                 "engineering_terms_sensitivity.json"):
         src = (fea_src / "abaqus_m1" / name) if name != "manifest.json" else (fea_src / name)
         if src.exists():
             shutil.copy2(src, out / "fea" / name)
