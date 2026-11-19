@@ -1,4 +1,4 @@
-﻿"""Automated E2E smoke for the Qt GUI (offscreen).
+"""Automated E2E smoke for the Qt GUI (offscreen).
 
 Mimics the manual E2E checklist:
   1. startup log line
@@ -96,6 +96,16 @@ t0 = time.monotonic()
 w.run_u()
 check("u idle", wait_idle())
 results["u_s"] = time.monotonic() - t0
+
+# 5b. measured sensitivity closed loop (CCD+PD -> S)
+t0 = time.monotonic()
+w.run_sens_demo()
+check("sens idle", wait_idle(timeout=600.0))
+results["sens_s"] = time.monotonic() - t0
+sens_log = w.ctrl_log.toPlainText()
+check("sens label", "SYNTHETIC-VALIDATED" in sens_log)
+check("sens heatmap pixmap", w.ctrl_img.pixmap() is not None)
+check("sens quality", "corr=" in sens_log and "err_rms=" in sens_log)
 
 # 6. export directory
 outdir = w.export_all(str(OUT / "export"))
