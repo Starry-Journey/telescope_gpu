@@ -127,7 +127,7 @@ jobs:
       - name: Install build deps
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends cmake libeigen3-dev libnlopt-dev
+          apt-get install -y --no-install-recommends cmake libeigen3-dev libnlopt-dev libnlopt-cxx-dev
       - name: Configure CUDA build
         run: >
           cmake -S . -B build-cuda
