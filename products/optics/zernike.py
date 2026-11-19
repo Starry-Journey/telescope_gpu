@@ -9,7 +9,7 @@ as well, so Python/PD/FEA share one definition of the basis.
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 import numpy as np
 
@@ -35,6 +35,25 @@ PROJECT_LABEL = {
     9: "Z10",
     10: "Z11",
 }
+
+# Engineering term map for the PD forward/solver state: label -> (n, m).
+# It follows the PROJECT_LABEL convention above (Z8 = x coma = (3,1),
+# Z9 = y coma = (3,-1), project/UI order) plus the default f"Z{i+1}" slot for
+# terms without a PROJECT_LABEL override (Z11 = (4,0), the n=4 spherical term).
+# NOTE: PROJECT_LABEL[10] is the legacy "Z11" alias for (3,3); PD only ever
+# asks for the labels below, so the alias does not collide here.
+PROJECT_TERM_MAP = {
+    "Z4": (2, 0),    # defocus
+    "Z5": (2, -2),   # astigmatism (45 deg)
+    "Z6": (2, 2),    # astigmatism (0 deg)
+    "Z8": (3, 1),    # coma x (project convention)
+    "Z9": (3, -1),   # coma y (project convention)
+    "Z11": (4, 0),   # primary spherical
+}
+
+# Historical PD state (defocus + x/y coma).  terms=None keeps this exactly, so
+# every existing Web/desktop/batch caller keeps the old 3-term behaviour.
+DEFAULT_TERMS: Tuple[str, ...] = ("Z4", "Z8", "Z9")
 
 
 def _radial(n: int, m: int, rho: np.ndarray) -> np.ndarray:
@@ -87,10 +106,31 @@ def fit_surface(x: np.ndarray, y: np.ndarray, z: np.ndarray, radius: float,
     }
 
 
-def low_order_grid(n: int, pupil_radius: float = 0.45, obscuration: float = 0.0):
-    """Pupil mask plus Z4/Z8/Z9 on an n x n grid.
+def resolve_terms(terms: Sequence[str] = None) -> Tuple[str, ...]:
+    """Normalise/validate an engineering term-label sequence.
 
-    Shared by the PD forward model (ml.traditional keeps a compat re-export).
+    terms=None means the historical 3-term state (DEFAULT_TERMS).  Unknown or
+    duplicate labels raise ValueError, so a typo can never silently change the
+    PD model state (the caller gets a clear error instead of a 3-term result).
+    """
+    labels = tuple(DEFAULT_TERMS if terms is None else terms)
+    if not labels:
+        raise ValueError("terms must contain at least one Zernike label")
+    unknown = [lab for lab in labels if lab not in PROJECT_TERM_MAP]
+    if unknown:
+        raise ValueError(f"unknown Zernike term label(s) {unknown}; "
+                         f"known labels: {sorted(PROJECT_TERM_MAP)}")
+    if len(set(labels)) != len(labels):
+        raise ValueError(f"duplicate Zernike term label(s) in {labels}")
+    return labels
+
+
+def pupil_geometry(n: int, pupil_radius: float = 0.45,
+                   obscuration: float = 0.0):
+    """(mask, rho, theta) on the n x n pupil grid.
+
+    Shared by low_order_grid() and term_grids() so the PD forward model and the
+    golden low-order grids can never drift apart.
     """
     x = np.linspace(-1.0, 1.0, n)
     yy, xx = np.meshgrid(x, x, indexing="ij")
@@ -98,6 +138,29 @@ def low_order_grid(n: int, pupil_radius: float = 0.45, obscuration: float = 0.0)
     rho = r / pupil_radius
     theta = np.arctan2(yy, xx)
     mask = ((r <= pupil_radius) & (r >= obscuration * pupil_radius)).astype(float)
+    return mask, rho, theta
+
+
+def term_grids(n: int, labels: Sequence[str] = DEFAULT_TERMS,
+               pupil_radius: float = 0.45, obscuration: float = 0.0) -> dict:
+    """Normalized Zernike grid per engineering label on an n x n grid.
+
+    Returns {label: grid}.  Same grid convention as low_order_grid(); for the
+    default labels the Z4/Z8/Z9 arrays equal low_order_grid()'s z4/z8/z9
+    bit-for-bit (both go through zernike()).
+    """
+    labels = resolve_terms(labels)
+    _, rho, theta = pupil_geometry(n, pupil_radius, obscuration)
+    return {lab: zernike(*PROJECT_TERM_MAP[lab], rho, theta) for lab in labels}
+
+
+def low_order_grid(n: int, pupil_radius: float = 0.45, obscuration: float = 0.0):
+    """Pupil mask plus Z4/Z8/Z9 on an n x n grid.
+
+    Shared by the PD forward model (ml.traditional keeps a compat re-export).
+    Kept as the explicit golden reference for the 3-term state.
+    """
+    mask, rho, theta = pupil_geometry(n, pupil_radius, obscuration)
     z4 = np.sqrt(3.0) * (2.0 * rho ** 2 - 1.0)
     radial = np.sqrt(8.0) * (3.0 * rho ** 3 - 2.0 * rho)
     z8 = radial * np.cos(theta)

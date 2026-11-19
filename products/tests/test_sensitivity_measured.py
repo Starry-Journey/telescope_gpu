@@ -4,7 +4,9 @@ The estimator tests drive measure_sensitivity with a scripted invert() so the
 pose/drift/repeat math is checked exactly; the closed-loop test runs the real
 PD chain on synthetic frames generated from a known ground-truth S.
 """
+import json
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -143,6 +145,62 @@ class MeasuredSensitivityTest(unittest.TestCase):
         self.assertTrue(r["warning"])
         np.testing.assert_allclose(np.asarray(r["S"])[:, 0], S3[:, 0],
                                    atol=1e-10)
+
+
+class ZemaxCrossCheckTest(unittest.TestCase):
+    """measured S vs the real ZOS-API matrix (EXTERNAL-CHECK column)."""
+
+    REAL = (Path(__file__).resolve().parents[2] / "data" / "zemax"
+            / "sensitivity_zemax.json")
+
+    @unittest.skipUnless(REAL.exists(), "real Zemax matrix not present")
+    def test_identical_matrix_has_zero_difference(self):
+        from products.sensitivity.measured import compare_with_zemax
+        doc = json.loads(self.REAL.read_text(encoding="utf-8"))
+        S = np.asarray(doc["matrix"], dtype=float)
+        result = {"S": S.tolist(), "terms": doc["targets"],
+                  "dofs": doc["controls"]}
+        cmp = compare_with_zemax(result)
+        self.assertTrue(cmp["available"])
+        self.assertTrue(cmp["comparable"])
+        self.assertEqual(cmp["label"], "EXTERNAL-CHECK")
+        self.assertAlmostEqual(cmp["max_abs_rel"], 0.0, places=12)
+
+    @unittest.skipUnless(REAL.exists(), "real Zemax matrix not present")
+    def test_scaled_matrix_reports_relative_difference(self):
+        from products.sensitivity.measured import compare_with_zemax
+        doc = json.loads(self.REAL.read_text(encoding="utf-8"))
+        S = np.asarray(doc["matrix"], dtype=float) * 1.5
+        result = {"S": S.tolist(), "terms": doc["targets"],
+                  "dofs": doc["controls"]}
+        cmp = compare_with_zemax(result)
+        self.assertAlmostEqual(cmp["max_abs_rel"], 0.5, places=9)
+        focus = cmp["per_column"]["m2_focus"]
+        self.assertAlmostEqual(focus["relative_norm_diff"], 0.5, places=9)
+
+    def test_partial_dof_overlap(self):
+        from products.sensitivity.measured import compare_with_zemax
+        try:
+            import json as _json
+            doc = _json.loads(self.REAL.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            self.skipTest("real Zemax matrix not present")
+        S = np.asarray(doc["matrix"], dtype=float)
+        keep = [0, 1]                       # Z4 row, Z8 row; focus + decenter_x
+        result = {"S": S[keep][:, :2].tolist(), "terms": ["Z4", "Z8"],
+                  "dofs": ["m2_focus", "m2_decenter_x"]}
+        cmp = compare_with_zemax(result)
+        self.assertEqual(cmp["terms"], ["Z4", "Z8"])
+        self.assertEqual(cmp["dofs"], ["m2_focus", "m2_decenter_x"])
+        self.assertAlmostEqual(cmp["max_abs_rel"], 0.0, places=12)
+
+    def test_missing_file_is_reported(self):
+        from products.sensitivity.measured import compare_with_zemax
+        cmp = compare_with_zemax({"S": [[1.0]], "terms": ["Z4"],
+                                  "dofs": ["m2_focus"]},
+                                 path="C:/does/not/exist.json")
+        self.assertFalse(cmp["available"])
+        self.assertIn("note", cmp)
 
 
 class ClosedLoopPDTest(unittest.TestCase):

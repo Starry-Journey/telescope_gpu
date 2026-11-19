@@ -141,6 +141,8 @@ class QtApp(QMainWindow):
         self.last_ccd = None
         self.last_pd = None
         self.last_fea = None
+        self.last_fea3d = None
+        self._fea_xyz = None  # node arrays (mm/mm/nm) backing the 3D view
         self.last_s = None
         self.frames = []
         self._workers = []
@@ -385,6 +387,9 @@ class QtApp(QMainWindow):
             if self.fea_bar.pixmap():
                 self.fea_bar.pixmap().save(str(out / "fea_bar.png"), "PNG")
                 files.append("fea_bar.png")
+            if getattr(self, "fea3d_img", None) is not None and self.fea3d_img.pixmap():
+                self.fea3d_img.pixmap().save(str(out / "fea_3d.png"), "PNG")
+                files.append("fea_3d.png")
             if getattr(self, "last_s", None):
                 (out / "sensitivity.json").write_text(
                     json.dumps(self.last_s, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
@@ -596,19 +601,30 @@ class QtApp(QMainWindow):
         lay.addLayout(row)
         self.fea_img = QLabel(); self.fea_img.setAlignment(Qt.AlignCenter)
         self.fea_img.setMinimumSize(720, 420); self.fea_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;")
-        lay.addWidget(self.fea_img, 3)
+        self.fea3d_img = QLabel("3D 结构视图（点击按钮生成）")
+        self.fea3d_img.setAlignment(Qt.AlignCenter)
+        self.fea3d_img.setMinimumSize(380, 300)
+        self.fea3d_img.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
+        img_row = QHBoxLayout()
+        img_row.addWidget(self.fea_img, 3)
+        img_row.addWidget(self.fea3d_img, 2)
+        lay.addLayout(img_row, 3)
         self.fea_bar = QLabel("Zernike 柱状图")
         self.fea_bar.setAlignment(Qt.AlignCenter)
         self.fea_bar.setMinimumSize(600, 220)
         self.fea_bar.setStyleSheet("border:1px dashed #2a3a4a;border-radius:8px;color:#6b7f94;")
         lay.addWidget(self.fea_bar, 2)
         bar = QHBoxLayout()
+        viz = QPushButton("3D 结构视图"); viz.clicked.connect(self.run_fea3d)
+        vpng = QPushButton("导出 3D PNG"); vpng.setObjectName("Ghost")
+        vpng.clicked.connect(lambda: self._save_pixmap(self.fea3d_img, "fea_3d.png"))
         png = QPushButton("导出 PNG"); png.setObjectName("Ghost")
         png.clicked.connect(lambda: self._save_pixmap(self.fea_img, "fea_surface.png"))
         js = QPushButton("导出拟合 JSON"); js.setObjectName("Ghost")
         js.clicked.connect(lambda: self._save_json(self.last_fea or {}, "fea_fit.json"))
         bp = QPushButton("导出柱状图"); bp.setObjectName("Ghost")
         bp.clicked.connect(lambda: self._save_pixmap(self.fea_bar, "fea_zernike.png"))
+        bar.addWidget(viz); bar.addWidget(vpng)
         bar.addWidget(png); bar.addWidget(js); bar.addWidget(bp); bar.addStretch(1)
         lay.addLayout(bar)
         self.fea_log = QTextEdit(); self.fea_log.setReadOnly(True); self.fea_log.setMaximumHeight(130)
@@ -631,8 +647,34 @@ class QtApp(QMainWindow):
             return
         self._run_process("fea_case", {"cid": cid}, self._on_fea, "加载 FEA")
 
-    def _on_fea(self, d):
+    def _remember_fea_xyz(self, d, raw=None):
+        """Keep node arrays (mm/mm/nm) so the 3D button has data to render."""
+        if raw and len(raw.get("x") or []) >= 4:
+            self._fea_xyz = {"x": raw["x"], "y": raw["y"], "z": raw["z"],
+                             "label": raw.get("label") or "uploaded"}
+            return
+        try:
+            g = d.get("grid") or {}
+            gx = np.asarray(g.get("x") or [], dtype=float)
+            gy = np.asarray(g.get("y") or [], dtype=float)
+            vals = np.asarray([np.nan if v is None else float(v)
+                               for row in (g.get("z") or []) for v in row],
+                              dtype=float)
+            if gx.size < 2 or gy.size < 2 or vals.size != gx.size * gy.size:
+                self._fea_xyz = None
+                return
+            xx, yy = np.meshgrid(gx, gy)
+            xx, yy = xx.ravel(), yy.ravel()
+            ok = np.isfinite(vals)
+            self._fea_xyz = {"x": xx[ok].tolist(), "y": yy[ok].tolist(),
+                             "z": vals[ok].tolist(),
+                             "label": str((d.get("case") or {}).get("id") or "FEA")}
+        except Exception:
+            self._fea_xyz = None
+
+    def _on_fea(self, d, raw=None):
         self.last_fea = d
+        self._remember_fea_xyz(d, raw)
         self.fea_img.setPixmap(_fea_png(d).scaled(self.fea_img.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self.fea_log.setPlainText("case=%s\nsynthetic=%s targets=%s\nresidual=%s" %
                                   (d["case"].get("id"), d["case"].get("synthetic"),
@@ -645,6 +687,42 @@ class QtApp(QMainWindow):
                 self.fea_bar.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         except Exception as e:
             self.fea_log.append("bar error: " + str(e))
+        # a new surface invalidates the previous 3D render
+        self.fea3d_img.setText("3D 结构视图（点击按钮生成）")
+
+    def run_fea3d(self):
+        data = getattr(self, "_fea_xyz", None) or {}
+        if len(data.get("x") or []) < 4:
+            self.fea_log.append("3D: 请先加载工况或上传 FEA CSV 再生成")
+            self.status("3D 视图: 无面形数据", WARN)
+            return
+        payload = {"x": data["x"], "y": data["y"], "z": data["z"],
+                   "label": data.get("label") or "FEA",
+                   "azim": -60, "elev": 25}
+        self._run_process("fea_viz", payload, self._on_fea3d, "FEA 3D")
+
+    def _on_fea3d(self, r):
+        self.last_fea3d = r
+        try:
+            raw = base64.b64decode(r["png3d_b64"])
+            pix = QPixmap(); pix.loadFromData(raw)
+            if pix.isNull():
+                raise ValueError("PNG 解码失败")
+        except Exception as e:
+            self.fea_log.append("3D error: " + str(e))
+            self.status("3D 视图失败", BAD)
+            return
+        self.fea3d_img.setPixmap(pix.scaled(self.fea3d_img.size(), Qt.KeepAspectRatio,
+                                            Qt.SmoothTransformation))
+        st = r.get("stats") or {}
+        try:
+            rms = float(st.get("rms_nm", float("nan")))
+            pv = float(st.get("pv_nm", float("nan")))
+        except (TypeError, ValueError):
+            rms = pv = float("nan")
+        self.fea3d_img.setToolTip("label=%s  n=%s" % (r.get("label"), st.get("n")))
+        self.fea_log.append("3D: label=%s rms=%.4f nm pv=%.4f nm n=%s" %
+                            (r.get("label"), rms, pv, st.get("n")))
 
     def upload_fea(self):
         path, _ = QFileDialog.getOpenFileName(self, "FEA CSV", "", "CSV (*.csv *.txt)")
@@ -657,9 +735,9 @@ class QtApp(QMainWindow):
                     xs.append(float(row["x_mm"])); ys.append(float(row["y_mm"])); zs.append(float(row["dz_nm"]))
         except Exception as e:
             QMessageBox.critical(self, "FEA", str(e)); return
-        self._run_process("fea_upload", {"x": xs, "y": ys, "z": zs,
-                                         "label": Path(path).stem},
-                          self._on_fea, "上传 FEA")
+        raw = {"x": xs, "y": ys, "z": zs, "label": Path(path).stem}
+        self._run_process("fea_upload", dict(raw),
+                          lambda d, raw=raw: self._on_fea(d, raw), "上传 FEA")
 
     # ---------- ZMX ----------
     def tab_zmx(self):

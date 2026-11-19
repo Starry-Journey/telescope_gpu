@@ -25,7 +25,9 @@ real bench are UNVERIFIED until bench evidence exists.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -82,7 +84,9 @@ def measure_sensitivity(poses: Sequence[Pose],
                         defocus: Sequence[float] = DEFAULT_DEFOCUS,
                         invert_kwargs: Optional[dict] = None,
                         rank_tol: float = 1e-8,
-                        label: str = "UNVERIFIED") -> dict:
+                        label: str = "UNVERIFIED",
+                        cross_check: bool = False,
+                        zemax_path=None) -> dict:
     """Estimate S (len(terms) x n_dof) from a pose series.
 
     invert: callable(frames [K, n, n]) -> {"zernike": {term: value, ...}}.
@@ -197,7 +201,7 @@ def measure_sensitivity(poses: Sequence[Pose],
     rank = int(np.sum(sv > rank_tol * max(float(sv[0]), 1.0)))
     cond = float(sv[0] / sv[-1]) if sv.size and sv[-1] > 0 else float("inf")
     _, _, vt = np.linalg.svd(S)
-    return {
+    result = {
         "S": S.tolist(),
         "S_std": S_std.tolist(),
         "terms": list(terms),
@@ -219,6 +223,103 @@ def measure_sensitivity(poses: Sequence[Pose],
         "label": label,
         "warning": ("excitation poses outside reference coverage; drift removal "
                     "is extrapolated" if unbracketed else ""),
+    }
+    if cross_check:
+        try:
+            result["zemax_check"] = compare_with_zemax(result, zemax_path)
+        except (OSError, ValueError, KeyError) as exc:
+            result["zemax_check"] = {"available": False, "error": str(exc)}
+    return result
+
+
+# --------------------------------------------------------------------------
+# cross-check against the real Zemax (ZOS-API) sensitivity matrix
+# --------------------------------------------------------------------------
+
+ZEMAX_S_PATH = Path(__file__).resolve().parents[2] / "data" / "zemax" / "sensitivity_zemax.json"
+
+
+def compare_with_zemax(result: dict, path=None,
+                       rel_floor: float = 1e-6) -> dict:
+    """Per-column comparison of a measured S against the Zemax ZOS-API S.
+
+    The measured matrix answers "what the instrument really does"; Zemax is the
+    EXTERNAL-CHECK reference.  Rows/cols are matched by label, so a measured
+    series that only exercised some DOFs still yields a valid sub-comparison.
+
+    Relative difference is (S_meas - S_zemax) / |S_zemax| per entry; columns
+    whose Zemax norm is below `rel_floor` are reported as unobservable instead
+    of producing inf.
+    """
+    p = Path(path) if path else ZEMAX_S_PATH
+    if not p.exists():
+        return {"available": False, "path": str(p),
+                "note": "no Zemax sensitivity file; run scripts/zos_sensitivity.py"}
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    if "matrix" not in doc or "targets" not in doc or "controls" not in doc:
+        raise ValueError("Zemax sensitivity JSON is missing matrix/targets/controls")
+
+    S_meas = np.asarray(result["S"], dtype=float)
+    meas_terms = list(result["terms"])
+    meas_dofs = list(result["dofs"])
+    zemax_terms = list(doc["targets"])
+    zemax_dofs = list(doc["controls"])
+    S_zemax = np.asarray(doc["matrix"], dtype=float)
+
+    terms = [t for t in zemax_terms if t in meas_terms]
+    dofs = [d for d in zemax_dofs if d in meas_dofs]
+    if not terms or not dofs:
+        return {"available": True, "path": str(p), "comparable": False,
+                "note": "no common target/dof labels between measured and Zemax",
+                "terms": terms, "dofs": dofs,
+                "zemax_label": doc.get("label", "EXTERNAL-CHECK")}
+
+    ri = [meas_terms.index(t) for t in terms]
+    ci = [meas_dofs.index(d) for d in dofs]
+    zr = [zemax_terms.index(t) for t in terms]
+    zc = [zemax_dofs.index(d) for d in dofs]
+    A = S_meas[np.ix_(ri, ci)]
+    B = S_zemax[np.ix_(zr, zc)]
+
+    denom = np.abs(B)
+    rel = np.full(B.shape, np.nan)
+    mask = denom > rel_floor
+    rel[mask] = (A[mask] - B[mask]) / denom[mask]
+
+    per_column = {}
+    for j, dof in enumerate(dofs):
+        col_a, col_b = A[:, j], B[:, j]
+        nb = float(np.linalg.norm(col_b))
+        per_column[dof] = {
+            "zemax_norm": nb,
+            "measured_norm": float(np.linalg.norm(col_a)),
+            "relative_norm_diff": (float(np.linalg.norm(col_a - col_b)) / nb
+                                   if nb > rel_floor else None),
+            "max_abs_rel_entry": (float(np.nanmax(np.abs(rel[:, j])))
+                                  if np.any(mask[:, j]) else None),
+        }
+    entries = [{"term": terms[i], "dof": dofs[j], "measured": float(A[i, j]),
+                "zemax": float(B[i, j]),
+                "rel_diff": (None if not mask[i, j] else float(rel[i, j]))}
+               for i in range(len(terms)) for j in range(len(dofs))]
+
+    vals = [abs(e["rel_diff"]) for e in entries if e["rel_diff"] is not None]
+    return {
+        "available": True,
+        "comparable": True,
+        "path": str(p),
+        "zemax_label": doc.get("label", "EXTERNAL-CHECK"),
+        "terms": terms,
+        "dofs": dofs,
+        "measured_matrix": A.tolist(),
+        "zemax_matrix": B.tolist(),
+        "entries": entries,
+        "per_column": per_column,
+        "max_abs_rel": max(vals) if vals else None,
+        "mean_abs_rel": float(np.mean(vals)) if vals else None,
+        "label": "EXTERNAL-CHECK",
+        "note": ("measured CCD+PD S vs OpticStudio ZOS-API S; large per-column "
+                 "differences indicate model/geometry assumptions, not a bug"),
     }
 
 

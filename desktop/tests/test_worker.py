@@ -1,9 +1,13 @@
+import base64
 import json
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,6 +41,29 @@ class WorkerDispatchTest(unittest.TestCase):
                                      "noise": 2, "stars": 8, "defocus": [-1, 0, 1]})
         self.assertEqual(len(d["psf"]), 3)
         self.assertEqual(len(d["psf"][0]), 64)
+
+    def test_fea_viz_task(self):
+        u = np.linspace(-400.0, 400.0, 12)
+        xx, yy = np.meshgrid(u, u)
+        zz = 120.0 * np.exp(-(xx ** 2 + yy ** 2) / 9.0e4) + 0.02 * xx
+        payload = {"x": xx.ravel().tolist(), "y": yy.ravel().tolist(),
+                   "z": zz.ravel().tolist(), "label": "synthetic_12x12",
+                   "azim": -60, "elev": 25}
+        d = self._run_worker("fea_viz", payload)
+        self.assertGreater(len(d["png3d_b64"]), 2000)
+        self.assertEqual(sorted(d["stats"].keys()), ["n", "pv_nm", "rms_nm"])
+        self.assertEqual(d["stats"]["n"], 144)
+        self.assertEqual(d["label"], "synthetic_12x12")
+        g = d["grid"]
+        self.assertEqual(len(g["x"]), len(g["y"]))
+        self.assertEqual(len(g["z"]), len(g["y"]))
+        self.assertEqual(len(g["z"][0]), len(g["x"]))
+        # compact PNG contract: <= 400x300 px and < 300 KB
+        raw = base64.b64decode(d["png3d_b64"])
+        self.assertLess(len(raw), 300 * 1024)
+        w, h = struct.unpack(">II", raw[16:24])
+        self.assertLessEqual(w, 400)
+        self.assertLessEqual(h, 300)
 
     def test_sens_measure_task(self):
         # one-dof minimal bracketed series, frames from the single forward

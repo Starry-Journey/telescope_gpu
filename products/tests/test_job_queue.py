@@ -29,6 +29,11 @@ class JobQueueTest(unittest.TestCase):
         import os
         import tempfile
 
+        # A long-lived workspace may already have results/jobs.sqlite3 from
+        # earlier app/worker runs; the invariant is that *this test* must not
+        # create it, not that the file can never exist.
+        repo_db = js.ROOT / "results" / "jobs.sqlite3"
+        existed_before = repo_db.exists()
         with tempfile.TemporaryDirectory() as td:
             os.environ["TEL_JOB_DB"] = str(Path(td) / "lazy.sqlite3")
             try:
@@ -43,7 +48,7 @@ class JobQueueTest(unittest.TestCase):
             finally:
                 os.environ.pop("TEL_JOB_DB", None)
                 importlib.reload(mod)  # restore default module state
-        self.assertFalse((js.ROOT / "results" / "jobs.sqlite3").exists(),
+        self.assertFalse(not existed_before and repo_db.exists(),
                          "lazy test must not create a DB inside the repo")
 
 

@@ -12,6 +12,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -24,14 +25,26 @@ class JobStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        with sqlite3.connect(self.path) as con:
+        with self._con() as con:
             con.execute("""CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY, kind TEXT, status TEXT, worker TEXT,
                 payload TEXT, result TEXT, error TEXT,
                 created REAL, updated REAL)""")
 
+    @contextmanager
     def _con(self):
-        return sqlite3.connect(self.path, timeout=10)
+        """One transaction on a fresh connection, closed afterwards.
+
+        sqlite3's ``with connection`` only commits/rolls back; it leaves the
+        handle open, which on Windows keeps temp/test DB files locked.  Close
+        it so TemporaryDirectory cleanup cannot fail.
+        """
+        con = sqlite3.connect(self.path, timeout=10)
+        try:
+            with con:  # commit on success, roll back on exception
+                yield con
+        finally:
+            con.close()
 
     def submit(self, kind: str, payload: dict) -> str:
         jid = uuid.uuid4().hex[:12]
