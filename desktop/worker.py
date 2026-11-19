@@ -41,10 +41,11 @@ def run_worker(task, job_path=None, result_path=None):
                                 M1_RADIUS_MM, M1_OBSCURATION, payload["label"])
     elif task == "s":
         from products.control import service as fw
-        r = fw.sensitivity()
+        r = fw.sensitivity(source=payload.get("source", "auto"))
     elif task == "u":
         from products.control import service as fw
-        r = fw.control(payload["target"])
+        r = fw.control(payload["target"],
+                       source=payload.get("source", "auto"))
     elif task == "sens_measure":
         from products.sensitivity.measured import (poses_from_payload,
                                                    measure_sensitivity)

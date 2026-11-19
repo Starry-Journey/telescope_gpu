@@ -11,10 +11,18 @@ the pybind11/C++ framework; the JSON contract below stays the same.
 """
 from __future__ import annotations
 
+import json
 import math
+from functools import lru_cache
+from pathlib import Path
 from typing import List, Optional, Sequence
 
 import numpy as np
+
+ROOT = Path(__file__).resolve().parents[2]
+# Real ZOS-API output, written by scripts/zos_sensitivity.py. Never faked:
+# when the file is absent we fall back to the documented proxy and say so.
+REAL_S_PATH = ROOT / "data" / "zemax" / "sensitivity_zemax.json"
 
 CONTROL_NAMES = ["m2_focus", "m2_decenter_x", "m2_decenter_y", "m2_tilt_x", "m2_tilt_y"]
 CONTROL_UNITS = ["mm", "mm", "mm", "mrad", "mrad"]
@@ -48,35 +56,85 @@ UPPER = np.full(5, 0.5)
 
 def metadata() -> dict:
     """Return parameter/control metadata and default target."""
+    real = load_real_sensitivity()
+    if real is not None:
+        target = (real["S"] @ DEFAULT_U).tolist()
+        frame_src = "zemax-zos-api"
+    else:
+        target = (A @ DEFAULT_U).tolist()
+        frame_src = "synthetic-proxy"
     return {
         "target_names": TARGET_NAMES,
         "target_meta": TARGET_META,
         "control_names": CONTROL_NAMES,
         "control_units": CONTROL_UNITS,
         "control_meta": CONTROL_META,
-        "target": (A @ DEFAULT_U).tolist(),
+        "target": target,
         "default_truth": DEFAULT_U.tolist(),
         "lower": LOWER.tolist(),
         "upper": UPPER.tolist(),
         "frame": "3x5",
-        "note": "M2 5-DOF 的线性代理；数值是 synthetic 占位，不是 Zemax 实测",
+        "source": frame_src,
+        "note": ("M2 5-DOF linear map; source=zemax-zos-api means a real "
+                 "OpticStudio solve on the design ZMX (EXTERNAL-CHECK), "
+                 "source=synthetic-proxy means the placeholder matrix"
+                 if real is not None else
+                 "M2 5-DOF 的线性代理；数值是 synthetic 占位，不是 Zemax 实测"),
     }
 
 
-def sensitivity(step: float = 1e-3) -> dict:
-    """Central-difference S at u=0; equivalent to the C++ builder."""
+@lru_cache(maxsize=4)
+def load_real_sensitivity(path: Optional[str] = None) -> Optional[dict]:
+    """Load the real ZOS-API 3x5 matrix; None when the file is absent."""
+    p = Path(path) if path else REAL_S_PATH
+    if not p.exists():
+        return None
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    S = np.asarray(doc["matrix"], dtype=float)
+    if S.shape != (3, len(CONTROL_NAMES)):
+        raise ValueError(f"real sensitivity matrix must be 3x{len(CONTROL_NAMES)}, "
+                         f"got {S.shape}")
+    if not np.all(np.isfinite(S)):
+        raise ValueError("real sensitivity matrix contains non-finite values")
+    return {"S": S, "doc": doc, "path": str(p)}
+
+
+def _matrix(source: str = "auto") -> tuple[np.ndarray, dict]:
+    """Resolve the S matrix and its provenance."""
+    if source not in ("auto", "proxy", "zemax"):
+        raise ValueError("source must be auto|proxy|zemax")
+    if source in ("auto", "zemax"):
+        real = load_real_sensitivity()
+        if real is not None:
+            return real["S"], {"source": "zemax-zos-api",
+                               "label": real["doc"].get("label", "EXTERNAL-CHECK"),
+                               "zmx": real["doc"].get("zmx", ""),
+                               "delta": real["doc"].get("delta")}
+        if source == "zemax":
+            raise FileNotFoundError(f"missing {REAL_S_PATH}")
+    return A, {"source": "synthetic-proxy", "label": "UNVERIFIED",
+               "zmx": "", "delta": None}
+
+
+def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
+    """Central-difference S at u=0 (proxy) or the measured Zemax file.
+
+    With source="auto" the real ZOS-API matrix is used when present; the
+    response always carries `source`/`label` so the UI can tell them apart.
+    """
     if not (0.0 < step < 0.1):
         raise ValueError("step must be in (0, 0.1)")
-    base = np.zeros(5)
-    z0 = A @ base
-    cols = []
-    for j in range(5):
-        plus = base.copy()
-        minus = base.copy()
-        plus[j] += step
-        minus[j] -= step
-        cols.append((A @ plus - A @ minus) / (2.0 * step))
-    S = np.stack(cols, axis=1)
+    S, prov = _matrix(source)
+    if prov["source"] == "synthetic-proxy":
+        base = np.zeros(5)
+        cols = []
+        for j in range(5):
+            plus = base.copy()
+            minus = base.copy()
+            plus[j] += step
+            minus[j] -= step
+            cols.append((A @ plus - A @ minus) / (2.0 * step))
+        S = np.stack(cols, axis=1)
     sv = np.linalg.svd(S, compute_uv=False)
     rank = int(np.sum(sv > 1e-12 * max(sv[0], 1.0)))
     cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else math.inf
@@ -92,19 +150,25 @@ def sensitivity(step: float = 1e-3) -> dict:
         "singular_values": sv.tolist(),
         "nullspace": 5 - rank,
         "unit": "waves / (mm or mrad)",
+        "source": prov["source"],
+        "label": prov["label"],
+        "zmx": prov["zmx"],
+        "note": ("real OpticStudio solve" if prov["source"] == "zemax-zos-api"
+                 else "synthetic proxy matrix, not a Zemax measurement"),
     }
 
 
 def control(target: Sequence[float], lam: float = 1e-8,
             use_bounds: bool = True, lower: Optional[Sequence[float]] = None,
-            upper: Optional[Sequence[float]] = None) -> dict:
-    """Weighted least squares + Tikhonov, matching the C++ reference."""
+            upper: Optional[Sequence[float]] = None,
+            source: str = "auto") -> dict:
+    """Weighted least squares + Tikhonov, on the real or proxy S."""
     z = np.asarray(target, dtype=float).reshape(-1)
     if z.size != 3:
         raise ValueError("target must have 3 values (Z4/Z8/Z9)")
     if lam < 0:
         raise ValueError("lambda must be >= 0")
-    S = A
+    S, prov = _matrix(source)
     lo = np.asarray(lower if lower is not None else LOWER, dtype=float)
     hi = np.asarray(upper if upper is not None else UPPER, dtype=float)
     if lo.size != 5 or hi.size != 5:
@@ -142,5 +206,10 @@ def control(target: Sequence[float], lam: float = 1e-8,
         "control_names": CONTROL_NAMES,
         "control_units": CONTROL_UNITS,
         "control_meta": CONTROL_META,
-        "note": "3x5 rank-3: target is reproducible, u is minimum-norm and not unique",
+        "source": prov["source"],
+        "label": prov["label"],
+        "note": ("3x5 rank-3: target is reproducible, u is minimum-norm and "
+                 "not unique" if prov["source"] == "synthetic-proxy" else
+                 "real ZOS-API S: u is minimum-norm; check nullspace for "
+                 "unobservable actuator combinations"),
     }

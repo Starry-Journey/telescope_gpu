@@ -261,6 +261,140 @@
       "synthetic": false,
       "model": "distributed-spring, simplified plate",
       "assumption": "elastic foundation, not real whiffletree/contact"
+    },
+    {
+      "id": "M1_abq_gravity_0deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis horizontal",
+      "file": "abaqus_m1/M1_gravity_0deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 3.153,
+      "fit_residual_rms_nm": 1.412,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, 36 bottom + 24 side spring pads (k=1e6/5e5 N/mm)",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -0.011879,
+        "Z8": -0.10708,
+        "Z9": 0.013022
+      }
+    },
+    {
+      "id": "M1_abq_gravity_90deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis vertical",
+      "file": "abaqus_m1/M1_gravity_90deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 1121.977,
+      "fit_residual_rms_nm": 4.95,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, 36 bottom + 24 side spring pads (k=1e6/5e5 N/mm)",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -380.527304,
+        "Z8": 1.070777,
+        "Z9": 0.070814
+      }
+    },
+    {
+      "id": "M1_abq_thermal_plus20K",
+      "surface": "M1",
+      "load_case": "uniform +20 K soak",
+      "file": "abaqus_m1/M1_thermal_plus20K_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 270.334,
+      "fit_residual_rms_nm": 0.483,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, Zerodur alpha=5e-8/K, spring-restrained growth",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 0.036726,
+        "Z8": -0.001665,
+        "Z9": 0.000162
+      }
+    },
+    {
+      "id": "M1_abq_thermal_minus20K",
+      "surface": "M1",
+      "load_case": "uniform -20 K soak",
+      "file": "abaqus_m1/M1_thermal_minus20K_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 270.334,
+      "fit_residual_rms_nm": 0.483,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, Zerodur alpha=5e-8/K, spring-restrained growth",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -0.036726,
+        "Z8": 0.001665,
+        "Z9": -0.000162
+      }
+    },
+    {
+      "id": "M1_abq_thermal_grad20K",
+      "surface": "M1",
+      "load_case": "radial soak gradient 0 K at ID -> +20 K at OD (ASSUMED profile)",
+      "file": "abaqus_m1/M1_thermal_grad20K_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 167.007,
+      "fit_residual_rms_nm": 0.865,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, 10 annular temperature bands",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 81.596822,
+        "Z8": -0.057446,
+        "Z9": -0.036158
+      }
     }
-  ]
+  ],
+  "abaqus_model": {
+    "script": "scripts/abaqus_m1_whiffletree.py",
+    "solver": "Abaqus 2025 (SIMULIA Established Products)",
+    "geometry": "annular Zerodur disk OD 2500 / ID 700 / t 260 mm",
+    "supports": "36 bottom pads (6-12-12-6) + 24 side pads; each pad spread over a 70 mm (bottom) / 45 mm (side) node patch as springs to ground",
+    "stiffness_N_per_mm": {
+      "bottom": 1000000.0,
+      "side": 500000.0
+    },
+    "mesh": "C3D8R, seed 30 mm, 6410 top-surface nodes",
+    "convergence": "seed 45 -> 30 changes gravity-90 surface RMS by 4% (1171 -> 1122 nm); point springs are avoided because they diverge under mesh refinement",
+    "material": {
+      "E_MPa": 90000.0,
+      "nu": 0.24,
+      "rho_t_mm3": 2.53e-09,
+      "alpha_per_K": 5e-08
+    },
+    "warning": "plate-level model; magnitudes depend on the assumed pad stiffness and exceed the design RMS spec"
+  }
 }

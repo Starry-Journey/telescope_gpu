@@ -93,8 +93,16 @@ def _target_vector(case_id: str) -> np.ndarray:
     return np.array([t.get("Z4", 0.0), t.get("Z8", 0.0), t.get("Z9", 0.0)]) / 632.8
 
 
-def environment_sensitivity() -> dict:
-    """S from documented gravity and thermal cases (3x2)."""
+def environment_sensitivity(source: str = "synthetic") -> dict:
+    """S from documented gravity and thermal cases (3x2).
+
+    source="synthetic"   -> the generator-derived reference cases (labelled)
+    source="abaqus"      -> the real Abaqus 2025 plate solves (FEA-PROVISIONAL)
+    """
+    if source not in ("synthetic", "abaqus"):
+        raise ValueError("source must be synthetic|abaqus")
+    if source == "abaqus":
+        return _abaqus_environment_sensitivity()
     ids = ["M1_gravity_0deg", "M1_gravity_90deg",
            "M1_thermal_plus20K", "M1_thermal_minus20K"]
     with ThreadPoolExecutor(max_workers=4) as ex:
@@ -112,9 +120,57 @@ def environment_sensitivity() -> dict:
         "condition": cond,
         "nullspace": S.shape[1] - rank,
         "method": "FEA case difference (synthetic surfaces)",
+        "source": "synthetic",
+        "label": "SYNTHETIC-VALIDATED",
         "source_cases": ["M1_gravity_0deg", "M1_gravity_90deg",
                           "M1_thermal_plus20K", "M1_thermal_minus20K"],
         "warning": "Synthetic surfaces scaled to documented RMS; replace with real FEA/FEA-Zemax before physical claims",
+    }
+
+
+def _abaqus_environment_sensitivity() -> dict:
+    """S_env from the real Abaqus plate model (scripts/abaqus_m1_whiffletree.py).
+
+    Columns:
+      gravity_deg : (z(90 deg) - z(0 deg)) / 90
+      thermal_K   : (z(+20 K) - z(-20 K)) / 40
+    The radial soak-gradient case is reported separately because it is an
+    assumed profile, not a symmetric +/- pair.
+    """
+    g0, g90, tp, tm, tg = (
+        _target_vector("M1_abq_" + t) for t in
+        ("gravity_0deg", "gravity_90deg", "thermal_plus20K",
+         "thermal_minus20K", "thermal_grad20K"))
+    S = np.column_stack([(g90 - g0) / 90.0, (tp - tm) / 40.0])
+    sv = np.linalg.svd(S, compute_uv=False)
+    rank = int(np.sum(sv > 1e-12 * max(float(sv[0]), 1.0)))
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else float("inf")
+    _, _, vt = np.linalg.svd(S)
+    return {
+        "targets": ["Z4", "Z8", "Z9"],
+        "controls": ["gravity_deg", "thermal_K"],
+        "units": ["waves/deg", "waves/K"],
+        "matrix": S.tolist(),
+        "rank": rank,
+        "condition": cond,
+        "nullspace": S.shape[1] - rank,
+        "nullspace_vectors": vt[rank:].tolist(),
+        "singular_values": sv.tolist(),
+        "method": "Abaqus 2025 plate model, 36 bottom + 24 side spring pads",
+        "source": "abaqus",
+        "label": "FEA-PROVISIONAL",
+        "model": "abq-m1-spring-whiffletree",
+        "source_cases": ["M1_abq_gravity_0deg", "M1_abq_gravity_90deg",
+                          "M1_abq_thermal_plus20K", "M1_abq_thermal_minus20K"],
+        "gradient": {
+            "profile": "0 K at ID -> +20 K at OD (assumed)",
+            "z_waves": tg.tolist(),
+            "S_per_K": (tg / 20.0).tolist(),
+        },
+        "warning": ("Real Abaqus solve with idealized spring whiffletree and "
+                    "plate-level geometry; magnitudes are support-stiffness "
+                    "dependent and exceed the design RMS spec, so use for "
+                    "trends/experiment design, not as a compliance claim"),
     }
 
 def custom_surface(x, y, z, radius: float, obscuration: float = 0.0,

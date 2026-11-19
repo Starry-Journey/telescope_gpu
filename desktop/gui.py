@@ -701,7 +701,8 @@ class QtApp(QMainWindow):
     def tab_ctrl(self):
         w = QWidget(); lay = QVBoxLayout(w)
         row = QHBoxLayout()
-        s_btn = QPushButton("计算 M2 代理 S"); s_btn.clicked.connect(self.run_s)
+        s_btn = QPushButton("计算 M2 灵敏度 S（Zemax 优先）")
+        s_btn.clicked.connect(self.run_s)
         u_btn = QPushButton("求解控制量 u"); u_btn.clicked.connect(self.run_u)
         cal_btn = QPushButton("实测标定演示（CCD+PD 合成闭环）")
         cal_btn.clicked.connect(self.run_sens_demo)
@@ -744,12 +745,15 @@ class QtApp(QMainWindow):
 
     def _on_s(self, d):
         self.last_s = d
-        self.ctrl_log.setPlainText("S=%s\nrank=%s condition=%s nullspace=%s" %
-                                   (d.get("values"), d.get("rank"), d.get("condition"),
-                                    d.get("nullspace")))
+        self.ctrl_log.setPlainText(
+            "source=%s label=%s\nS=%s\nrank=%s condition=%s nullspace=%s\n%s" % (
+                d.get("source"), d.get("label"), d.get("values"),
+                d.get("rank"), d.get("condition"), d.get("nullspace"),
+                d.get("note", "")))
         self._show_matrix_heatmap(d["values"], d.get("target_names", []),
                                   d.get("control_names", []),
-                                  "Sensitivity S [waves/(mm or mrad)]", self.ctrl_img)
+                                  "Sensitivity S [waves/(mm or mrad)] — %s" %
+                                  (d.get("source", "")), self.ctrl_img)
 
     def run_sens_demo(self):
         self._run_process("sens_demo", {}, self._on_sens_demo, "实测标定")

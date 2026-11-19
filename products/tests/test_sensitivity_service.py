@@ -25,6 +25,20 @@ class SensitivityServiceTest(unittest.TestCase):
         self.assertEqual(len(s["matrix"]), 3)
         self.assertEqual(len(s["matrix"][0]), 2)
         self.assertEqual(s["rank"], 2)
+        self.assertEqual(s["source"], "synthetic")
+
+    def test_abaqus_environment_sensitivity(self):
+        s = sens.environment_sensitivity(source="abaqus")
+        self.assertEqual(s["source"], "abaqus")
+        self.assertEqual(s["label"], "FEA-PROVISIONAL")
+        self.assertEqual(len(s["matrix"]), 3)
+        self.assertEqual(len(s["matrix"][0]), 2)
+        self.assertIn(s["rank"], (1, 2))
+        self.assertIn("gradient", s)
+
+    def test_bad_source(self):
+        with self.assertRaises(ValueError):
+            sens.environment_sensitivity(source="nope")
 
 
 if __name__ == "__main__":
