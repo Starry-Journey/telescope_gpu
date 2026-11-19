@@ -485,7 +485,11 @@ def render_layout_3d(parsed, png_path=None, azim=-60, elev=18, width=6, height=4
         bbox={"boxstyle": "round,pad=0.25", "facecolor": "white",
               "edgecolor": "0.8", "alpha": 0.85},
     )
-    ax.view_init(elev=elev, azim=azim, roll=0)
+    try:
+        # `roll` only exists in matplotlib >= 3.6 (Ubuntu 22.04 ships 3.5)
+        ax.view_init(elev=elev, azim=azim, roll=0)
+    except TypeError:  # pragma: no cover - matplotlib < 3.6
+        ax.view_init(elev=elev, azim=azim)
     ax.set_axis_off()
 
     data = _save_png(fig, png_path)
