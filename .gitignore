@@ -59,3 +59,16 @@ results/jobs.sqlite3
 # ---- Abaqus scratch (keep the exported CSVs, drop solver binaries) ----
 data/fea_cases/abaqus_m1/odb/
 data/fea_cases/abaqus_m1/*_top.csv.tmp
+
+# ---- generated evidence kept in-repo (small, reproducible) ----
+!data/
+data/*
+!data/zemax/
+!data/zemax/*.json
+!data/zemax/*.csv
+!data/fea_cases/
+data/fea_cases/*
+!data/fea_cases/manifest.json
+!data/fea_cases/abaqus_m1/
+!data/fea_cases/abaqus_m1/*.csv
+!data/fea_cases/abaqus_m1/fit_summary.json
