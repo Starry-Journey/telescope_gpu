@@ -758,12 +758,8 @@ class QtApp(QMainWindow):
         self.star_img.set_source_pixmap(_png(url))
 
     def _save_star(self):
-        pix = self.star_img.pixmap()
-        if pix is None:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "导出星场", "ccd_star.png", "PNG (*.png)")
-        if path:
-            pix.save(path, "PNG"); self.status("已导出 " + path)
+        # reuse the checked exporter so a read-only target cannot fail silently
+        self._save_pixmap(self.star_img, "ccd_star.png")
 
     def _on_ccd(self, r):
         self.last_ccd = r
@@ -1003,7 +999,10 @@ class QtApp(QMainWindow):
         self._run_process("fea_viz", payload, self._on_fea3d, "FEA 3D")
 
     def _on_fea3d(self, r):
-        self.last_fea3d = r
+        # The rendered PNG is already decoded into a QPixmap below; keep only the
+        # small metadata/stats record here so the GUI does not retain a second
+        # (base64) copy of the image for the lifetime of the window.
+        self.last_fea3d = {k: v for k, v in r.items() if k != "png3d_b64"}
         try:
             raw = base64.b64decode(r["png3d_b64"])
             pix = QPixmap(); pix.loadFromData(raw)
@@ -1014,6 +1013,7 @@ class QtApp(QMainWindow):
             self.status("3D 视图失败", BAD)
             return
         self.fea3d_img.set_source_pixmap(pix)
+        del raw
         st = r.get("stats") or {}
         try:
             rms = float(st.get("rms_nm", float("nan")))

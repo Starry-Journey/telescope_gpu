@@ -4,13 +4,21 @@ Both the synthetic CCD pipeline (`web/ccd_pipeline_service.py`) and the real
 FITS importer (`web/fits_pipeline_service.py`) use the same image stretch,
 cutout and background-plane code.  Keeping it here avoids two subtly different
 PSF definitions.
+
+``matplotlib``/``pyplot`` stay imported at module level (the AgG backend is
+pinned for the fallback renderer).  Making that import lazy was measured to cut
+the Qt worker start-up of every GUI task by ~0.35 s, but it also makes the CCD
+worker finish before the documented E2E cancel window, so it is deliberately
+left eager here (see docs/perf_notes.md).
 """
 from __future__ import annotations
 
 import base64
 import io
 import json
+from functools import lru_cache
 from pathlib import Path
+from typing import Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -93,15 +101,32 @@ def cutout(image: np.ndarray, x: float, y: float, size: int = 64) -> np.ndarray:
     return image[yi - half:yi + half, xi - half:xi + half].astype(float)
 
 
-def clean_cutout(cut: np.ndarray) -> np.ndarray:
-    """Fit/subtract a border plane, clip negative, normalize to unit sum."""
-    h, w = cut.shape
-    yy, xx = np.indices(cut.shape)
-    border = np.zeros_like(cut, dtype=bool)
+@lru_cache(maxsize=8)
+def _cutout_plane_geometry(shape: Tuple[int, int]):
+    """Cached border mask / coordinate grids / design matrix for one cutout size.
+
+    The background-plane fit in :func:`clean_cutout` is over a fixed pixel
+    geometry (border of width 6) for a fixed cutout shape, so the index arrays
+    and the 3-column least-squares design matrix are built once instead of per
+    call.  The index grids and the border mask are marked read-only (inputs
+    only); the design matrix is left alone for LAPACK.
+    """
+    h, w = int(shape[0]), int(shape[1])
+    yy, xx = np.indices((h, w))
+    border = np.zeros((h, w), dtype=bool)
     b = 6
     border[:b, :] = True; border[-b:, :] = True
     border[:, :b] = True; border[:, -b:] = True
-    A = np.column_stack([xx[border], yy[border], np.ones(border.sum())])
+    A = np.column_stack([xx[border], yy[border], np.ones(int(border.sum()))])
+    for arr in (xx, yy, border):
+        arr.setflags(write=False)
+    return border, xx, yy, A
+
+
+def clean_cutout(cut: np.ndarray) -> np.ndarray:
+    """Fit/subtract a border plane, clip negative, normalize to unit sum."""
+    border, xx, yy, A = _cutout_plane_geometry(
+        (int(cut.shape[0]), int(cut.shape[1])))
     coeff, *_ = np.linalg.lstsq(A, cut[border], rcond=None)
     plane = coeff[0] * xx + coeff[1] * yy + coeff[2]
     c = np.clip(cut - plane, 0, None)

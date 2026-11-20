@@ -59,10 +59,28 @@ def _read_case(case_id: str) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
         raise KeyError(f"unknown case '{case_id}'")
     xs, ys, zs = [], [], []
     with open(CASES / info["file"], encoding="utf-8") as fh:
-        for row in csv.DictReader(fh):
-            xs.append(float(row["x_mm"]))
-            ys.append(float(row["y_mm"]))
-            zs.append(float(row["dz_nm"]))
+        reader = csv.reader(fh)
+        try:
+            header = next(reader)
+        except StopIteration:
+            header = []
+        try:
+            i_x = header.index("x_mm")
+            i_y = header.index("y_mm")
+            i_z = header.index("dz_nm")
+        except ValueError:
+            raise ValueError(
+                f"case '{case_id}' ({info['file']}) is missing one of the "
+                f"x_mm / y_mm / dz_nm columns") from None
+        # csv.reader instead of csv.DictReader: same float() parsing of the same
+        # fields, without building a dict per node (the 18k-node M1 cases are
+        # ~2x faster to read).
+        for row in reader:
+            if not row:
+                continue
+            xs.append(float(row[i_x]))
+            ys.append(float(row[i_y]))
+            zs.append(float(row[i_z]))
     return info, np.asarray(xs), np.asarray(ys), np.asarray(zs)
 
 
@@ -82,6 +100,17 @@ def _to_grid(x, y, z, radius: Optional[float] = None,
 
 @lru_cache(maxsize=32)
 def case_detail(case_id: str) -> dict:
+    """Cached 66-term fit + Plotly grid for one FEA case.
+
+    The ``lru_cache`` key is the case id alone, which is the whole input: the
+    fit, the 72x72 display grid and the CSV read happen once per case for the
+    life of the process.  The returned dict (and the ``case`` / ``grid`` /
+    ``fit`` sub-dicts) is the *shared* cached object - callers must treat it as
+    read-only.  All current callers (web JSON response, desktop worker, the
+    sensitivity matrix builders and the tests) only read it, so no defensive
+    deepcopy is made; a deepcopy of the 72x72 grid per access would cost
+    ~1-3 ms and duplicate memory on every hit for no correctness gain.
+    """
     info, x, y, z = _read_case(case_id)
     radius = float(info["aperture_radius_mm"])
     fit = fit_surface(x, y, z, radius, n_terms=66)

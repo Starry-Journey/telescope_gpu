@@ -1,353 +1,106 @@
-# telescope_gpu
+# 多终端通用望远镜 · 波前反演与补偿工程（TelescopeEngineering）
 
-[![ci](https://github.com/Starry-Journey/telescope_gpu/actions/workflows/ci.yml/badge.svg?branch=engineering-mvp)](https://github.com/Starry-Journey/telescope_gpu/actions/workflows/ci.yml)
+面向 2.5 m R-C 望远镜的**离焦 CCD → 相位差反演 → 灵敏度矩阵 → 补偿控制**工程实现，
+含 FEA/Zemax 数据链、可观测性分析、装调前处理与原生 Qt 桌面前端。
 
+> 当前主路径：**PySide6 原生桌面**（`desktop/`）+ `products/` 服务层。
+> 旧 Web/React/FastAPI 架构已归档到 `archive/legacy-web/`，不再维护。
 
-大口径望远镜重力变形的**相位差法波前反演**仿真平台（v2.1）。
+## 1. 能力一览
 
-正向生成离焦星点图像 → 用相位差法反演出 Zernike 系数 → 与真值比对，
-形成闭环自检。对应研究报告《基于相位差法与最小二乘影响矩阵的
-大口径望远镜重力变形标定技术研究》技术路线的第 ① 步。
-
-> **v2.1 状态（2026-10）**：CPU/GPU 分层、配置与 CLI、FITS 星表自描述、
-> 依赖无关单元测试、批量 cuFFT、GPU 归约。默认配置下
-> θ=45°、5 帧、15 颗星，反演波前 RMS = **0.0017λ**。
-> 按“三个系数误差的算术 RMS”这一同一口径：v1 为 0.0155λ，v2 为 0.00096λ
-> （波前 RMS 与系数 RMS 相差 √3，不能直接混比）。
-> 这是**已知真值的仿真数据**，不是实测精度。
->
-> 详细架构、逐模块讲解与设计复盘见 `docs/archive/代码说明.md`。
-
-## 工程化 MVP（L1–L5）
-
-在原有相位差反演之外，仓库增加了可独立构建/测试的工程化层：
-
-| 层 | 目录 | 内容 |
+| 能力 | 入口 | 状态标签 |
 |---|---|---|
-| L1–L3 | `numerics/` | Eigen LU/QR/SVD、radix-2 FFT、RK4；GTest 10 项、Google Benchmark、ASan、pybind11 |
-| L4 | `pipeline/` | CCD 定标/星点/帧差/Hough/WCS/评估（numpy+scipy+astropy） |
-| L5 | `ml/` | PyTorch 可微相位差前向、CNN、传统对比；可视化走 `desktop/`（Qt），`web/` 仅兼容 wrapper |
-| 部署 | `Dockerfile`、`.github/workflows/ci.yml` | CPU MVP 镜像 + GitHub Actions |
+| CCD 合成（物理探测器链）与 FITS 接入 | `products/ccd/` | SYNTHETIC-VALIDATED |
+| CCD 预处理（bias/dark/flat、坏像元、宇宙线、背景、星点、配准） | `products/preprocess/` | SYNTHETIC-VALIDATED |
+| 相位差反演（3 项 / 6 项 Zernike，BOBYQA 多起点） | `products/pd/` | CORE-VERIFIED |
+| 实测灵敏度标定（括阻位姿 + 漂移消除 + 交叉验证） | `products/sensitivity/measured.py` | UNVERIFIED（待台架） |
+| 真实 Zemax 3×5 灵敏度 + 适用范围 | `data/zemax/` | EXTERNAL-CHECK |
+| Abaqus M1 板级/文档版 FEA + S 区间 | `data/fea_cases/` | FEA-PROVISIONAL |
+| 机构可观性 + 像散装调方案 | `products/sensitivity/observability.py` | FEA-PROVISIONAL |
+| 端到端管线（俯仰扫描 → 补偿表 → FEA 请求） | `products/pipeline/` | mock / 待硬件 API |
+| 硬件 API 接口层（相机/望远镜终端/补偿机构） | `products/acquisition/` | 接口已定义，mock 可用 |
+| 桌面 GUI（6 页签 + 3D 可视化 + 导出） | `desktop/` | GUI-BETA |
 
-快速验收：
-
-```bash
-# 数值库（Eigen/GTest/Benchmark/pybind11）
-cmake -S numerics -B build-numerics -DCMAKE_BUILD_TYPE=Release
-cmake --build build-numerics -j4
-ctest --test-dir build-numerics --output-on-failure
-
-# CCD 管线
-python3 -m pipeline.run --config configs/pipeline.json --force-sim
-
-# 学习型反演
-python3 -m ml.train_cnn --epochs 20 --samples 2048 --batch 64 --n 64
-python3 -m ml.compare --samples 4 --starts 16 --max-nfev 100
-
-# 可视化
-python desktop/qt_app.py            # Qt 桌面主入口
-```
-
-目录/数据流：`docs/目录与模块架构.md`；文档索引：`docs/模块化文档索引.md`；
-4–6 周路线：`docs/tutorials/00_工程化MVP路线.md`；
-数值库教程：`docs/tutorials/01_C++数值库.md`；可微前向/CNN/对比：`02`–`04`。
-
-> 所有 ML/管线数字都是**仿真**结果，不是 2.5 m 望远镜实测；边界写在每篇 tutorial 末尾。
-> **two-stage 实测**：3 个独立仿真样本上，CNN 初值 + BOBYQA 平均 **34 次**正向评估，40 个随机起点 + BOBYQA 平均 **1823 次**，精度相同；详见 `docs/tutorials/08_CNN初值BOBYQA.md`。
-
-
-
-## 架构
-
-```
-include/telescope/
-  types.hpp            光学参数、Zernike 槽位/边界、帧数上限
-  zernike.hpp          Zernike 基函数、光瞳网格、重力变形模型
-  fft_cpu.hpp          radix-2 CPU FFT（参考实现）
-  cpu_reference.hpp    CPU 正向模型（逐像素对照）
-  fits_io.hpp          最小 FITS 读写（float32 + 元数据/星表卡片）
-  config.hpp           key=value 配置 + 命令行覆盖
-  forward_model.cuh    GPU 正向模型（PSF / 星点图 / 多帧）
-  phase_diversity.hpp  预处理、代价函数、多起点 + BOBYQA 反演
-
-src/
-  zernike.cpp          8 个基函数槽位（实际拟合 Z4/Z8/Z9）
-  fft_cpu.cpp          CPU FFT
-  cpu_reference.cpp    CPU 正向模型
-  fits_io.cpp          FITS I/O
-  config.cpp           配置/CLI + 参数校验
-  forward_model.cu     光瞳 → cuFFT → PSF → 降采样 → 星点叠加
-  phase_diversity.cu   代价函数与优化器
-
-apps/
-  forward_generate.cu  生成 5 帧带噪声 FITS
-  inverse_solve.cu     读 FITS、反演、写结果/报告
-tests/                 自建轻量测试框架 + CTest
-configs/default.conf   默认参数
-scripts/               可视化与灵敏度矩阵示意图
-pipeline/              CCD 星场/定标/检测/天体测量（Python）
-products/sensitivity/  FEA 案例/面形→Zernike/环境 S
-framework/             通用反演/控制 C++ 框架
-numerics/              C++ 数值库（Eigen/GTest/Benchmark/pybind11）
-ml/                    PyTorch 可微前向 + CNN + 传统对比
-web/                   兼容 wrapper；旧 Web 在 archive/legacy-web/
-data/fea_cases/        合成 FEA 参考工况
-docs/                  架构、模块、教程、技术报告
-```
-
-### CCD 星场/运动目标管线（扩展）
-
-`pipeline/` 是独立于相位差反演的 CCD 数据前端，覆盖：
-
-```
-CCD 帧 → 暗场/平场/背景/去噪 → 星点提取/质心 → 帧差/形态学/Hough
-      → WCS/畸变/星表匹配 → 检测率/虚警率/天体测量精度
-```
-
-运行：
-
-```bash
-python3 -m pipeline.run --config configs/pipeline.json --force-sim
-python3 -m unittest discover -s pipeline/tests -v
-```
-
-结果在 `results/ccd_pipeline/`（已被 `.gitignore` 忽略）。默认仿真结果：
-星点完备率 1.000、运动目标检测率 0.85、虚警率 0.000、目标位置 RMSE
-1.09 pixel、天体测量 RMSE 1.39 arcsec。详细模块表、算法和边界见
-`pipeline/README.md`，机理型 Word 教程见 `docs/archive/CCD星场处理管线说明.docx`。
-
-
-构建目标分两层，依赖方向单一（CUDA → CPU）：
-
-- `telescope_cpu`：不依赖 CUDA，可在无 GPU 环境编译和测试。
-- `telescope_cuda`：链接 `telescope_cpu` + CUDA/cuFFT + NLopt。
-  CUDA 或 NLopt 缺失时自动降级为 CPU-only，不会让整个构建失败。
-
-## 构建
-
-依赖：CMake ≥ 3.18、C++17、CUDA Toolkit、cuFFT、NLopt。
-
-```bash
-cd telescope_gpu
-cmake -S . -B build
-cmake --build build -j4
-```
-
-CUDA 架构默认 `86`（RTX 3050）。换机器时显式指定：
-
-```bash
-cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=89
-```
-
-只编译/测试 CPU 层（无 GPU 的 CI、笔记本）：
-
-```bash
-cmake -S . -B build-cpu -DTEL_BUILD_CUDA=OFF
-cmake --build build-cpu -j4
-ctest --test-dir build-cpu --output-on-failure
-```
-
-## 运行
-
-两个程序按 `theta_XXXdeg/` 相对路径读写数据，建议在 `build/` 下运行：
-
-```bash
-cd build
-
-# 1. 生成仿真数据：theta_045deg/ 下 5 帧 FITS
-./forward_generate --theta 45
-
-# 2. 反演
-./inverse_solve --theta 45
-
-# 3. 可视化（可选；需要 matplotlib/astropy，输出写在当前目录）
-python3 ../scripts/visualize.py --theta 45
-```
-
-常用覆盖参数：
-
-```bash
-./forward_generate --theta 45 --star-count 15 --seed 42
-./inverse_solve   --theta 45 --solve-starts 40 --solve-refine 3
-./inverse_solve   --config ../configs/default.conf --theta 45
-```
-
-`--help` 查看完整说明。所有配置项都在 `configs/default.conf` 中，
-命令行 `--key value` 或 `--key=value` 可覆盖任意一项。
-
-## 输出
-
-- `inverse_result.txt`：6 个数（真值 Z4/Z8/Z9 + 反演值），兼容 v1 可视化脚本。
-- `inverse_report.txt`：帧数、背景、`cost(true)`、`cost(zero)`、最终代价、
-  RMS、伪解标记、逐项误差、正向模型调用次数。
-
-`inverse_solve` 会先计算 `cost(true)`（用 FITS 头部记录的真值）和
-`cost(zero)`。若最终代价**比 `cost(true)` 低超过 1%**，程序会标记
-`pseudo_solution`：这通常意味着正向模型与反演变量集合不一致，
-结果是伪解。
-
-## 测试
-
-```bash
-cd build
-ctest --output-on-failure
-```
-
-- `cpu_unit`（28 个用例）：Zernike、FFT、FITS、配置与参数校验。
-- `gpu_unit`（11 个用例）：GPU vs CPU 正向模型、归一化、真值处代价最小、
-  端到端反演恢复、预处理、FITS 帧一致性校验、错误路径。
-
-测试不依赖 GTest（环境未安装），使用 `tests/test_framework.hpp` 中的
-轻量注册/断言框架。
-
-## 编号约定（重要）
-
-代码/报告里的 `Z8`、`Z9` 是**工程槽位号**，不是严格 Noll 编号：
-
-| 槽位 | 标签 | 真实 Noll | 是否拟合 |
-|---|---|---|---|
-| 0 | Z2 tilt-x | 2 | 否 |
-| 1 | Z3 tilt-y | 3 | 否 |
-| 2 | Z4 defocus | 4 | **是** |
-| 3 | Z5 astig-45 | 5 | 否 |
-| 4 | Z6 astig-0 | 6 | 否 |
-| 5 | Z7 trefoil | 9 | 否 |
-| 6 | Z8 coma-x | 8 | **是** |
-| 7 | Z9 coma-y | 7 | **是** |
-
-也就是说，本项目拟合的是“离焦 + x 彗差 + y 彗差”，物理含义没问题，
-但 `Z9` 对应文献里的 Noll Z7。与 Zemax 对照时：
-Zemax Z7（垂直彗差）→ 代码 Z9，Zemax Z8（水平彗差）→ 代码 Z8。
-详见 `docs/archive/代码说明.md`。
-
-## 数值自检与已知边界
-
-1. **背景扣除后不要 clamp 负值。** 这是 v2 调试中定位到的关键 bug：
-   背景 200 count、泊松噪声 σ≈14 count，若把 `data - background`
-   截断到 0，会在每像素产生约 5.6 count 的正偏置；总偏置（约 37 万
-   count）远大于真实信号（约 12 万 count），归一化后科学信号被稀释
-   约 4 倍，优化器会把解推向“最锐利”的伪解。v1 的 `cost(true)` 偏大、
-   系数 RMS 0.0155λ 主要来自这里。
-2. **只拟合 Z4/Z8/Z9。** 其余槽位在正向模型中为 0；如果扩展变量集合，
-   必须同时改 `active_zernike_indices()`、`kNumZernike` 和边界。
-3. **搜索边界必须允许负值。** 重力变形模型在 θ>225° 时 Z9 为负；
-   `ZernikeBounds::default_bounds()` 使用对称区间 `[-3,3]`、
-   `[-1.5,1.5]`。20 个起点在对称区间下可能漏掉真解盆地，默认 40。
-4. **噪声模型**：泊松(信号+背景) + 高斯读出噪声；背景用 FITS 头部 `BKG`
-   （仿真真值）。中位数背景是后备方案，会被星点翼抬高，偏差更大。
-5. **FFT 归一化**：PSF 在 GPU 上归一化为 sum=1，再叠加星点通量；
-   `generate_frames` 输出未归一化图像，反演前逐帧去背景并归一化。
-6. **星点坐标**：生成时取整，FITS 头部记录同一组整数坐标；反演端
-   `set_stars` 再次取整，避免“头部坐标 vs 实际叠加坐标”不一致。
-7. **FITS 自描述**：反演端会校验每帧的 `THETA`、`DEFOCUS`、图像尺寸、
-   星表和真值是否一致；不一致直接失败，避免混帧后“看起来收敛”。
-
-## 报告与代码数值的差异
-
-当前仓库 v2.1 在 θ=45° 的复现结果是：
-
-```
-Z4  +1.4728 -> +1.4729   (误差 0.0001)
-Z8  +0.1714 -> +0.1723   (误差 0.0009)
-Z9  +0.1800 -> +0.1786   (误差 0.0014)
-wavefront RMS = 0.0017 λ
-final cost = 5.3124e-03 (cost(true) = 5.3125e-03)
-```
-
-研究报告 PPT 中 `RMS=0.0631λ`、`Z4 误差 0.0960λ` 等数字来自早期版本，
-与当前代码不一致。答辩前应二选一：用当前代码重跑并更新 PPT，或在 PPT
-中明确标注“早期版本/不同参数”。`docs/archive/代码说明.md` 第 11 章给出了对照表
-和更新建议。
-
-## 文档
-
-- `docs/archive/代码说明.md`：架构、模块职责、逐函数讲解、数据流、代码审查记录、
-  性能分析与设计复盘。
-- `README.md`：构建/运行/边界。
-- `docs/archive/工程化技术说明_代码对齐版.docx`：总览（软件设计、科学原理、模块/函数、测试、CI、与主报告对齐）。
-- `docs/数值库技术说明.docx`：`numerics/`（Eigen/GTest/Benchmark/pybind11）。
-- `docs/archive/CCD星场处理管线说明.docx`：`pipeline/`（定标/星点/帧差/Hough/WCS/评估）。
-- `docs/archive/学习型反演技术说明.docx`：`ml/`（可微前向/CNN/two-stage）。
-- 旧 Web 文档：`docs/archive/Web小程序技术说明.docx`（已归档）。
-- `docs/archive/技术报告_代码对齐版_v2.docx`：主技术报告 + 附录D 工程化扩展与代码对齐。
-- `docs/模块化文档索引.md`：模块文档/命令/口径索引。
-- `docs/tutorials/`：逐模块教程与复现命令。
-
-## 通用反演与控制框架（framework/）
-
-`framework/` 把相位差、CCD 前端、灵敏度/控制收敛到同一组契约：
+## 2. 架构
 
 ```text
-Frame/Observation -> ParameterSpace -> ForwardModel -> InverseSolver
-                                      -> SensitivityBuilder -> ControlSolver
+desktop/gui.py (PySide6, 6 tabs)
+   │  QProcess job.json/result.json（可取消）
+desktop/worker.py  无 Qt 依赖的任务分发
+   │
+products/  ccd · preprocess · optics · pd · sensitivity · zemax · control ·
+           acquisition(接口+mock) · pipeline(编排) · jobs · fea
+   │
+data/     zemax/（真实 ZOS-API 结果）· fea_cases/（Abaqus 工况 + manifest）
+framework/ numerics/   C++ 通用框架与数值库（GTest/Benchmark/pybind11）
 ```
 
-构建与演示：
+详细分层与契约见 [`docs/架构与模块说明.md`](docs/架构与模块说明.md)，
+逐文件注释见 [`docs/代码模块注释索引.md`](docs/代码模块注释索引.md)。
 
-```bash
-cmake -S . -B build-framework \
-  -DTEL_BUILD_CUDA=OFF -DTEL_BUILD_FRAMEWORK=ON \
-  -DTEL_BUILD_NUMERICS=ON -DTEL_NUMERICS_BUILD_TESTS=OFF \
-  -DTEL_NUMERICS_BUILD_BENCH=OFF -DTEL_NUMERICS_BUILD_PYTHON=OFF
-cmake --build build-framework -j4
-ctest --test-dir build-framework -R framework --output-on-failure
-./build-framework/framework/framework_demo results/framework
+## 3. 快速开始
+
+```powershell
+# 打包版（推荐内部演示）
+dist\TelescopeEngineeringQtNative\TelescopeEngineeringQtNative.exe
+# 或源码
+py -3.13 desktop\qt_app.py
 ```
 
-输出：3×5 灵敏度矩阵（rank=3、condition≈1.09、nullspace=2）、控制量、
-`sensitivity.csv/control_result.json/run_manifest.json`。设计说明见
-`docs/框架设计说明.md`，模块说明见 `framework/README.md`。
+端到端管线（当前用 mock 硬件，输出补偿表与 FEA 请求）：
 
-## FEA 案例与机械-光学灵敏度（v1）
-
-`data/fea_cases/` 是根据两版设计资料生成的**合成参考工况**（不是已求解的 2.5 m FEA 模型）：
-
-```bash
-python3 -m products.sensitivity.generate_cases
-python3 -m unittest discover -s products/tests -v
+```powershell
+py -3.13 scripts\run_pipeline.py --elevations 15,45,75 --out results\pipeline\demo
 ```
 
-接口：
+重新生成数据（需要许可）：
 
-```text
-> 旧 Web API 已归档到 `archive/legacy-web/`；以下是历史接口，仅追溯。
-
-GET /api/fea/cases
-GET /api/fea/cases/{id}
-GET /api/fea/sensitivity
+```powershell
+# Zemax 3×5 S
+py -3.13 scripts\zos_sensitivity.py --out data\zemax --surface 4 --delta 0.01
+# Abaqus M1 板级 5 工况
+$env:TEL_ABAQUS_OUT="$PWD\data\fea_cases\abaqus_m1"
+D:\SIMULIA\Commands\abq2025.bat cae noGUI=scripts\abaqus_m1_whiffletree.py
 ```
 
-页面“④ FEA 案例”显示面形热力图、15 项 Zernike、环境 S（重力/温度）。
-真实 FEA 导出后替换 `data/fea_cases/*.csv`，保持 `manifest.json` 字段不变；
-说明见 `docs/FEA案例与灵敏度.md`。
+## 4. 测试
 
-## 三个独立功能模块（v1）
+```powershell
+py -3.13 -m unittest discover -s products/tests
+$env:QT_QPA_PLATFORM='offscreen'; py -3.13 -m unittest discover -s desktop/tests
+py -3.13 scripts\check_doc_links.py
+$env:QT_QPA_PLATFORM='offscreen'; py -3.13 desktop\e2e_smoke.py
+```
 
-| 模块 | 入口 | 文档 |
+基线见 [`docs/测试矩阵与回归.md`](docs/测试矩阵与回归.md)。
+
+## 5. 数据与标签
+
+| 数据 | 来源 | 标签 |
 |---|---|---|
-| ① CCD 数据管线 + 真实感仿真 | `POST /api/ccd/pipeline`，页面“⑤” | `docs/模块1_CCD数据管线.docx` |
-| ② 相位差反演 | `POST /api/pd/invert`，页面“⑤/⑥” | `docs/模块2_相位差反演.docx` |
-| ③ 灵敏度矩阵 + 控制量 | `/api/fea/*`、`/api/sensitivity/custom`、`/api/control/custom`，页面“④/⑦” | `docs/模块3_灵敏度与控制.docx` |
+| `data/zemax/sensitivity_zemax.json` | OpticStudio 2023 R1 ZOS-API（真实处方） | EXTERNAL-CHECK |
+| `data/fea_cases/abaqus_m1/` | Abaqus 2025 板级弹簧垫模型 | FEA-PROVISIONAL |
+| `data/fea_cases/abaqus_design/` | 紫台文档参数（OD2560/±5 K） | FEA-PROVISIONAL |
+| `release/telescope_sim_inputs_*/` | 仿真前置数据包（ZMX+FEA+Zemax S） | - |
+| 实测 S | 台架 CCD+PD | UNVERIFIED |
 
-运行：
+不要用合成/代理数据替代实测结论；标签随数据一起引用。
 
-```bash
-python desktop/qt_app.py            # Qt native；或 scripts/run_telescope.cmd
-# 旧 Web 已归档到 archive/legacy-web/
-```
+## 6. 文档
 
-模块 1 生成 5 帧真实感 CCD 与 64×64 PSF；模块 2 用这批 PSF 做 PD/BOBYQA；
-模块 3 支持 FEA 合成工况、3×5 代理 S、任意自定义 S 与控制量求解。
+- [`docs/README.md`](docs/README.md) 文档总索引（CURRENT / REFERENCE / ARCHIVED）
+- [`docs/架构与模块说明.md`](docs/架构与模块说明.md)
+- [`docs/测试矩阵与回归.md`](docs/测试矩阵与回归.md)
+- [`docs/实测Zemax与Abaqus建模报告.md`](docs/实测Zemax与Abaqus建模报告.md)
+- [`docs/实测灵敏度标定设计.md`](docs/实测灵敏度标定设计.md)
+- [`docs/紫台设计参数提取.md`](docs/紫台设计参数提取.md)
+- 历史材料：[`docs/archive/`](docs/archive/)、`archive/legacy-web/`
 
-## 3A 队列与 256² 预算
+## 7. 已知限制
 
-```text
-POST /api/zemax/jobs          # 提交 ZMX 到 SQLite job queue
-GET  /api/jobs/{id}           # 状态/结果（不返回 ZMX base64）
-scripts/zemax_zos_worker.py   # Windows/OpticStudio worker; --mock 只测队列
-PYTHONPATH=. python3 scripts/benchmark_pd.py
-```
-
-实测 5 帧前向：64² 0.014 s、128² 0.042 s、256² 0.180 s；
-256² 100 次 BOBYQA 约 16.7 s/起点。预算与并行建议见
-`docs/256²性能预算.md`，ZOS-API 流程见 `docs/Zemax3A.md`。
+1. 无望远镜控制终端/相机厂商 API：`products/acquisition/` 定义接口并提供 mock，
+   接入时只需实现三个适配器；
+2. 无工况图与俯仰实测：管线接受 elevation 列表，补偿表按角度输出，待实测填充；
+3. Abaqus 文档版为平面环盘（本机 CAE 旋转特征不可用），锥面矢高未建模；
+4. Zemax S 覆盖 Z4/Z8/Z9、单视场 0.01°、0.7 µm；
+5. 平移机构对像散/彗差盲区已由可观性分析删除，需 FEA 装调方案补偿。

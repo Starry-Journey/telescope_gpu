@@ -46,7 +46,6 @@ py -3.13 -m PyInstaller --noconfirm --clean --onedir ^
   --add-data "data/zemax;data/zemax" ^
   --hidden-import nlopt ^
   --hidden-import pipeline.realistic ^
-  --hidden-import web.job_queue ^
   --exclude-module torch --exclude-module rayoptics ^
   --exclude-module poppy --exclude-module hcipy ^
   --exclude-module PySide6.QtWebEngineWidgets ^
@@ -60,7 +59,8 @@ py -3.13 -m PyInstaller --noconfirm --clean --onedir ^
 - 主窗口：可打开；
 - 五个页签：CCD/PSF、PD、FEA、ZMX、S/控制；
 - 无 React、无浏览器、无 FastAPI 依赖（桌面直连服务）；
-- Web GUI 保留为旧路径，不再是桌面主路径。
+- Web/React 路径已删除（代码归档 `archive/legacy-web/`，文档归档
+  `docs/archive/legacy-web/`），桌面主路径不再引用 Web。
 
 ## 6. 边界
 

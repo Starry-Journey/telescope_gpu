@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -225,6 +226,21 @@ def _embed_optical_psf(psf: np.ndarray, size: int) -> np.ndarray:
     return canvas
 
 
+@lru_cache(maxsize=8)
+def _gaussian_otf(size: int, sigma: float) -> np.ndarray:
+    """Cached |OTF| of the Gaussian seeing kernel for an FFT canvas.
+
+    ``sigma`` and ``size`` are fixed for every frame of one simulation, so the
+    transfer function is built once instead of once per defocus frame.  Read
+    only - callers must not mutate it.
+    """
+    fy = np.fft.fftfreq(size)[:, None]
+    fx = np.fft.fftfreq(size)[None, :]
+    otf = np.exp(-2.0 * math.pi ** 2 * sigma ** 2 * (fx * fx + fy * fy))
+    otf.setflags(write=False)
+    return otf
+
+
 def combine_with_seeing(psf: np.ndarray, sigma_pix: float) -> np.ndarray:
     """Convolve an optical PSF with a Gaussian seeing kernel (NumPy FFT).
 
@@ -244,10 +260,8 @@ def combine_with_seeing(psf: np.ndarray, sigma_pix: float) -> np.ndarray:
     size = int(optical.shape[0]) + 2 * pad + 1
     kernel = _embed_optical_psf(optical, size)
     if sigma > 0:
-        fy = np.fft.fftfreq(size)[:, None]
-        fx = np.fft.fftfreq(size)[None, :]
-        otf = np.exp(-2.0 * math.pi ** 2 * sigma ** 2 * (fx * fx + fy * fy))
-        kernel = np.fft.ifft2(np.fft.fft2(kernel) * otf).real
+        kernel = np.fft.ifft2(np.fft.fft2(kernel)
+                              * _gaussian_otf(size, sigma)).real
         kernel = np.clip(kernel, 0.0, None)
     kernel /= max(float(kernel.sum()), 1e-30)
     return kernel
@@ -328,28 +342,41 @@ def _defect_mask(width: int, height: int, fraction: float,
 
 def _repair_defects(image: np.ndarray, mask: np.ndarray,
                     iterations: int = 2) -> np.ndarray:
-    """Replace flagged pixels by the mean of their good 8-neighbours."""
+    """Replace flagged pixels by the mean of their good 8-neighbours.
+
+    The bad-pixel / cosmic-ray masks usually flag only a handful of pixels, so
+    the neighbours are gathered per flagged pixel instead of shifting the whole
+    frame eight times.  The arithmetic (neighbour order, mean, two iterations,
+    toroidal wrap at the frame edge) is unchanged, so the result is identical.
+    """
     if not bool(np.any(mask)):
         return image
     out = np.array(image, dtype=float, copy=True)
     remaining = np.array(mask, dtype=bool, copy=True)
+    h, w = out.shape
     for _ in range(int(max(1, iterations))):
-        acc = np.zeros_like(out)
-        cnt = np.zeros_like(out)
+        ys, xs = np.nonzero(remaining)
+        if ys.size == 0:
+            break
+        acc = np.zeros(ys.size, dtype=float)
+        cnt = np.zeros(ys.size, dtype=float)
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
                 if dy == 0 and dx == 0:
                     continue
-                shifted = np.roll(out, (dy, dx), axis=(0, 1))
-                good = ~np.roll(remaining, (dy, dx), axis=(0, 1))
-                ys = remaining & good
-                acc[ys] += shifted[ys]
-                cnt[ys] += 1.0
-        update = remaining & (cnt > 0)
-        out[update] = acc[update] / cnt[update]
-        remaining = remaining & ~update
-        if not bool(np.any(remaining)):
+                # np.roll(image, (dy, dx))[y, x] == image[(y - dy) % h, (x - dx) % w]
+                ny = (ys - dy) % h
+                nx = (xs - dx) % w
+                good = ~remaining[ny, nx]
+                if bool(np.any(good)):
+                    acc[good] += out[ny[good], nx[good]]
+                    cnt[good] += 1.0
+        update = cnt > 0
+        if not bool(np.any(update)):
             break
+        uy, ux = ys[update], xs[update]
+        out[uy, ux] = acc[update] / cnt[update]
+        remaining[uy, ux] = False
     return out
 
 
@@ -518,7 +545,6 @@ def simulate(config: CcdModelConfig) -> dict:
 
     raw_frames: List[np.ndarray] = []
     cal_frames: List[np.ndarray] = []
-    repaired_frames: List[np.ndarray] = []
     frame_meta: List[dict] = []
     psf_cutouts: List[np.ndarray] = []
     total_saturation = 0
@@ -533,7 +559,11 @@ def simulate(config: CcdModelConfig) -> dict:
         for s in catalog:
             splat_star(scene, s["x"] + jx, s["y"] + jy,
                        s["flux_e"], kernel)
-        expected_e = np.clip(scene + background_e, 0.0, None)
+        # scene and background_e are both non-negative by construction, so the
+        # clip is a no-op; add in place to avoid one full-frame temporary.
+        expected_e = scene
+        expected_e += background_e
+        np.clip(expected_e, 0.0, None, out=expected_e)
         expected_total = float(expected_e.sum())
 
         electrons = rng_noise.poisson(expected_e).astype(float)
@@ -547,8 +577,11 @@ def simulate(config: CcdModelConfig) -> dict:
         sat_count = int(np.count_nonzero(saturated))
         total_saturation += sat_count
 
-        adu = np.clip(np.rint(adu), 0.0, float(max_adu))
-        raw = adu.copy()
+        # Quantise to whole ADU in place; `raw` is the only remaining owner of
+        # this buffer (the previous code copied it a second time).
+        np.rint(adu, out=adu)
+        np.clip(adu, 0.0, float(max_adu), out=adu)
+        raw = adu
 
         cosmic_mask = _cosmic_ray_map(width, height, config.cosmic_ray_rate,
                                       rng_cosmic)
@@ -559,13 +592,14 @@ def simulate(config: CcdModelConfig) -> dict:
         raw[cosmic_mask] = float(max_adu)
 
         # Simple calibration: bias + mean dark subtraction, unit flat field.
-        cal = np.clip(raw - bias_adu - dark_e / gain, 0.0, None)
+        cal = raw - bias_adu
+        cal -= dark_e / gain
+        np.clip(cal, 0.0, None, out=cal)
         defect = bad_mask | cosmic_mask
         repaired = _repair_defects(cal, defect)
 
         raw_frames.append(raw)
         cal_frames.append(cal)
-        repaired_frames.append(repaired)
         total_electrons += expected_total
         total_electrons_measured += measured_total
         frame_meta.append({

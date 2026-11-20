@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from web.fits_pipeline_service import run_fits_pipeline
+from products.ccd.fits_service import run_fits_pipeline
 from ml.traditional import forward_psf_numpy
 from products.pd.batch import run_batch
 

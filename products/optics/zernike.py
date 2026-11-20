@@ -5,13 +5,34 @@ products/sensitivity surface fit; terms 16..66 complete n=0..10.
 
 The low-order (Z4/Z8/Z9) subset used by the PD forward model is defined here
 as well, so Python/PD/FEA share one definition of the basis.
+
+Performance notes (optimisation pass, behaviour unchanged):
+
+* ``pupil_geometry`` / ``low_order_grid`` / ``term_grids`` are memoised by
+  ``(n, pupil_radius, obscuration[, terms])``.  The pupil grid and the Zernike
+  polynomial values only depend on those arguments, so the 5-frame PSF stack
+  and the PD optimiser rebuild them once instead of once per defocus frame.
+  The cached arrays are marked read-only; the public functions return fresh
+  writable copies, so callers can still mutate the result.
+* ``basis`` builds the 66-column design matrix from precomputed radial
+  polynomial coefficients and shared ``rho**k`` / ``cos(m*theta)`` tables
+  instead of re-evaluating 66 polynomials from scratch.
+* ``fit_surface`` solves the least-squares problem through the (66x66) normal
+  equations when the design matrix is well conditioned (the usual case) and
+  falls back to the SVD ``numpy.linalg.lstsq`` path otherwise.
 """
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from functools import lru_cache
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
+
+#: Number of distinct pupil-geometry / basis-grid keys kept in the LRU caches.
+#: Real callers use a handful of sizes (PD n=64/128/256, CCD n=128), so this is
+#: generous while bounding the retained arrays (largest entry is a few MB).
+_GRID_CACHE_SIZE = 8
 
 # (n, m) in project/UI order; the first 15 are the validated low-order set.
 _BASE: List[Tuple[int, int]] = [
@@ -25,6 +46,30 @@ for _n in range(11):
         if (_n, _m) not in TERMS:
             TERMS.append((_n, _m))
 assert len(TERMS) == 66
+
+
+def _build_radial_coefficients() -> Dict[Tuple[int, int],
+                                         Tuple[Tuple[int, float], ...]]:
+    """Precompute ``R_n^|m|(rho) = sum_k coeff_k * rho**(n-2k)`` per term.
+
+    Same coefficients as :func:`_radial` (the bit-exact single-zernike path);
+    evaluated only once so the 66-term design matrix does not recompute the
+    factorial table 66 times per fit.
+    """
+    table: Dict[Tuple[int, int], Tuple[Tuple[int, float], ...]] = {}
+    for n, m in TERMS:
+        am = abs(m)
+        entries = []
+        for k in range((n - am) // 2 + 1):
+            num = (-1) ** k * math.factorial(n - k)
+            den = (math.factorial(k) * math.factorial((n + am) // 2 - k)
+                   * math.factorial((n - am) // 2 - k))
+            entries.append((n - 2 * k, num / den))
+        table[(n, m)] = tuple(entries)
+    return table
+
+
+_RADIAL_COEFFS = _build_radial_coefficients()
 
 PROJECT_LABEL = {
     4: "Z4",   # defocus
@@ -77,25 +122,92 @@ def zernike(n: int, m: int, rho: np.ndarray, theta: np.ndarray) -> np.ndarray:
     return norm * rad
 
 
+def _design_matrix(rho: np.ndarray, theta: np.ndarray,
+                   n_terms: int) -> np.ndarray:
+    """66-column Zernike design matrix, vectorised over a node list.
+
+    Equivalent to ``np.stack([zernike(n, m, rho, theta) ...], axis=1)`` but
+    shares the ``rho**k`` powers and the ``cos/sin(m*theta)`` tables between
+    terms, which is what makes the surface fit cheap.
+    """
+    terms = TERMS[:int(n_terms)]
+    if not terms:
+        return np.empty((rho.size, 0), dtype=float)
+    max_n = max(n for n, _m in terms)
+    powers = [np.ones_like(rho, dtype=float)]
+    for _ in range(max_n):
+        powers.append(powers[-1] * rho)
+    trig: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}
+    for _n, m in terms:
+        am = abs(m)
+        if am and am not in trig:
+            trig[am] = (np.cos(am * theta), np.sin(am * theta))
+    out = np.empty((rho.size, len(terms)), dtype=float)
+    for i, (n, m) in enumerate(terms):
+        norm = math.sqrt(n + 1) if m == 0 else math.sqrt(2.0 * (n + 1))
+        col = None
+        for power, coeff in _RADIAL_COEFFS[(n, m)]:
+            term = (norm * coeff) * powers[power]
+            if col is None:
+                col = term
+            else:
+                col += term
+        if m > 0:
+            col *= trig[m][0]
+        elif m < 0:
+            col *= trig[abs(m)][1]
+        out[:, i] = col
+    return out
+
+
 def basis(x: np.ndarray, y: np.ndarray, radius: float,
           n_terms: int = 66) -> Tuple[np.ndarray, np.ndarray]:
     """Return (mask, design matrix) for an aperture of `radius`."""
     r = np.sqrt(x * x + y * y) / radius
     mask = r <= 1.0
     theta = np.arctan2(y, x)
-    cols = [zernike(n, m, r[mask], theta[mask]) for n, m in TERMS[:n_terms]]
-    return mask, np.stack(cols, axis=1)
+    return mask, _design_matrix(r[mask], theta[mask], n_terms)
+
+
+def _least_squares(A: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Least-squares coefficients for ``A @ c ~= b``.
+
+    Normal equations (Cholesky) are used because the Zernike design matrix over
+    the clear aperture is well conditioned (``cond(A) ~= 4-5`` for every bundled
+    FEA case and for the 6400-node benchmark surface; the SVD and normal-equation
+    solutions agree to <1e-12 nm there), making this ~10x faster than NumPy's
+    default SVD ``lstsq``.
+
+    Degenerate input falls back to the exact historical SVD path: Cholesky fails
+    outright for rank-deficient data (e.g. a collinear uploaded surface), and a
+    cheap eigenvalue check on the (66x66) normal matrix catches the remaining
+    "solvable but badly scaled" case before squaring the condition number costs
+    more than ~6 digits.
+    """
+    AtA = A.T @ A
+    Atb = A.T @ b
+    try:
+        chol = np.linalg.cholesky(AtA)
+    except np.linalg.LinAlgError:
+        coeff, *_ = np.linalg.lstsq(A, b, rcond=None)
+        return coeff
+    eig = np.linalg.eigvalsh(AtA)
+    if not np.all(np.isfinite(eig)) or eig[0] <= 1e-12 * eig[-1]:
+        coeff, *_ = np.linalg.lstsq(A, b, rcond=None)
+        return coeff
+    return np.linalg.solve(chol.T, np.linalg.solve(chol, Atb))
 
 
 def fit_surface(x: np.ndarray, y: np.ndarray, z: np.ndarray, radius: float,
                 n_terms: int = 66) -> dict:
     """Least-squares fit over the clear aperture; returns nm coefficients/RMS."""
     mask, A = basis(x, y, radius, n_terms)
-    coeff, *_ = np.linalg.lstsq(A, z[mask], rcond=None)
+    values = z[mask]
+    coeff = _least_squares(A, values)
     model = A @ coeff
-    residual = z[mask] - model
+    residual = values - model
     rms = float(np.sqrt(np.mean(residual ** 2)))
-    total_rms = float(np.sqrt(np.mean(z[mask] ** 2)))
+    total_rms = float(np.sqrt(np.mean(values ** 2)))
     return {
         "mask": mask,
         "coeff_nm": coeff.tolist(),
@@ -125,20 +237,44 @@ def resolve_terms(terms: Sequence[str] = None) -> Tuple[str, ...]:
     return labels
 
 
-def pupil_geometry(n: int, pupil_radius: float = 0.45,
-                   obscuration: float = 0.0):
-    """(mask, rho, theta) on the n x n pupil grid.
-
-    Shared by low_order_grid() and term_grids() so the PD forward model and the
-    golden low-order grids can never drift apart.
-    """
+@lru_cache(maxsize=_GRID_CACHE_SIZE)
+def _pupil_geometry_cached(n: int, pupil_radius: float, obscuration: float
+                           ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Cached (mask, rho, theta); the arrays are read-only - do not mutate."""
     x = np.linspace(-1.0, 1.0, n)
     yy, xx = np.meshgrid(x, x, indexing="ij")
     r = np.sqrt(xx * xx + yy * yy)
     rho = r / pupil_radius
     theta = np.arctan2(yy, xx)
     mask = ((r <= pupil_radius) & (r >= obscuration * pupil_radius)).astype(float)
+    for arr in (mask, rho, theta):
+        arr.setflags(write=False)
     return mask, rho, theta
+
+
+def pupil_geometry(n: int, pupil_radius: float = 0.45,
+                   obscuration: float = 0.0):
+    """(mask, rho, theta) on the n x n pupil grid.
+
+    Shared by low_order_grid() and term_grids() so the PD forward model and the
+    golden low-order grids can never drift apart.  The values are memoised but
+    every call returns fresh writable arrays, so mutation by a caller cannot
+    corrupt the cache.
+    """
+    mask, rho, theta = _pupil_geometry_cached(int(n), float(pupil_radius),
+                                              float(obscuration))
+    return mask.copy(), rho.copy(), theta.copy()
+
+
+@lru_cache(maxsize=_GRID_CACHE_SIZE)
+def _term_grids_cached(n: int, labels: Tuple[str, ...],
+                       pupil_radius: float, obscuration: float) -> dict:
+    """Cached {label: grid}; arrays and the dict are read-only for callers."""
+    _mask, rho, theta = _pupil_geometry_cached(n, pupil_radius, obscuration)
+    grids = {lab: zernike(*PROJECT_TERM_MAP[lab], rho, theta) for lab in labels}
+    for grid in grids.values():
+        grid.setflags(write=False)
+    return grids
 
 
 def term_grids(n: int, labels: Sequence[str] = DEFAULT_TERMS,
@@ -148,10 +284,27 @@ def term_grids(n: int, labels: Sequence[str] = DEFAULT_TERMS,
     Returns {label: grid}.  Same grid convention as low_order_grid(); for the
     default labels the Z4/Z8/Z9 arrays equal low_order_grid()'s z4/z8/z9
     bit-for-bit (both go through zernike()).
+
+    The grids are memoised; the returned dict and arrays are fresh copies, so a
+    caller may mutate them without affecting later calls.
     """
     labels = resolve_terms(labels)
-    _, rho, theta = pupil_geometry(n, pupil_radius, obscuration)
-    return {lab: zernike(*PROJECT_TERM_MAP[lab], rho, theta) for lab in labels}
+    grids = _term_grids_cached(int(n), labels, float(pupil_radius),
+                               float(obscuration))
+    return {lab: grid.copy() for lab, grid in grids.items()}
+
+
+@lru_cache(maxsize=_GRID_CACHE_SIZE)
+def _low_order_grid_cached(n: int, pupil_radius: float, obscuration: float):
+    """Cached (mask, z4, z8, z9); the arrays are read-only - do not mutate."""
+    mask, rho, theta = _pupil_geometry_cached(n, pupil_radius, obscuration)
+    z4 = np.sqrt(3.0) * (2.0 * rho ** 2 - 1.0)
+    radial = np.sqrt(8.0) * (3.0 * rho ** 3 - 2.0 * rho)
+    z8 = radial * np.cos(theta)
+    z9 = radial * np.sin(theta)
+    for arr in (mask, z4, z8, z9):
+        arr.setflags(write=False)
+    return mask, z4, z8, z9
 
 
 def low_order_grid(n: int, pupil_radius: float = 0.45, obscuration: float = 0.0):
@@ -159,10 +312,10 @@ def low_order_grid(n: int, pupil_radius: float = 0.45, obscuration: float = 0.0)
 
     Shared by the PD forward model (ml.traditional keeps a compat re-export).
     Kept as the explicit golden reference for the 3-term state.
+
+    The values are memoised; the returned arrays are fresh writable copies, so
+    a caller may mutate them without affecting later calls.
     """
-    mask, rho, theta = pupil_geometry(n, pupil_radius, obscuration)
-    z4 = np.sqrt(3.0) * (2.0 * rho ** 2 - 1.0)
-    radial = np.sqrt(8.0) * (3.0 * rho ** 3 - 2.0 * rho)
-    z8 = radial * np.cos(theta)
-    z9 = radial * np.sin(theta)
-    return mask, z4, z8, z9
+    mask, z4, z8, z9 = _low_order_grid_cached(int(n), float(pupil_radius),
+                                              float(obscuration))
+    return mask.copy(), z4.copy(), z8.copy(), z9.copy()

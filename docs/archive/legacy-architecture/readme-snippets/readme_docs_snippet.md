@@ -1,0 +1,8 @@
+- `docs/工程化技术说明_代码对齐版.docx`：总览（软件设计、科学原理、模块/函数、测试、CI、与主报告对齐）。
+- `docs/数值库技术说明.docx`：`numerics/`（Eigen/GTest/Benchmark/pybind11）。
+- `docs/CCD星场处理管线说明.docx`：`pipeline/`（定标/星点/帧差/Hough/WCS/评估）。
+- `docs/学习型反演技术说明.docx`：`ml/`（可微前向/CNN/two-stage）。
+- `docs/Web小程序技术说明.docx`：`web/`（FastAPI/React/Plotly/故障排查）。
+- `docs/技术报告_代码对齐版_v2.docx`：主技术报告 + 附录D 工程化扩展与代码对齐。
+- `docs/模块化文档索引.md`：模块文档/命令/口径索引。
+- `docs/tutorials/`：逐模块教程与复现命令。

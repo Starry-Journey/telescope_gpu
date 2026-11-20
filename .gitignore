@@ -62,3 +62,7 @@ data/fea_cases/abaqus_m1/*_top.csv.tmp
 
 # ---- packaged hand-off artifacts (regenerate with scripts/package_sim_inputs.py) ----
 release/
+
+# ---- runtime evidence (regenerable) ----
+results/pipeline/
+results/bench/

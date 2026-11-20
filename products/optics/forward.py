@@ -10,9 +10,9 @@ from typing import Sequence
 
 import numpy as np
 
-from products.optics.zernike import (DEFAULT_TERMS, low_order_grid,
-                                     pupil_geometry, resolve_terms,
-                                     term_grids)
+from products.optics.zernike import (DEFAULT_TERMS, _pupil_geometry_cached,
+                                     _term_grids_cached, low_order_grid,
+                                     resolve_terms)
 
 
 def pupil_basis(n: int, pupil_radius: float = 0.45, obscuration: float = 0.0):
@@ -37,12 +37,17 @@ def forward_psf_numpy(coeff: Sequence[float], defocus: float,
     fft_n = n * oversample
     # Z4 is needed for the known defocus even when it is not a solved term.
     needed = labels if "Z4" in labels else labels + ("Z4",)
-    grids = term_grids(fft_n, needed, pupil_radius, obscuration)
-    phase_field = np.zeros_like(grids["Z4"])
+    # Both the grids and the pupil mask are memoised (read-only), so a 5-frame
+    # defocus stack or a PD optimiser iteration only evaluates them once.
+    grids = _term_grids_cached(fft_n, needed, float(pupil_radius),
+                               float(obscuration))
+    phase_field = None
     for value, label in zip(coeff, labels):
-        phase_field = phase_field + float(value) * grids[label]
+        term = float(value) * grids[label]
+        phase_field = term if phase_field is None else phase_field + term
     phase = 2 * np.pi * (phase_field + float(defocus) * grids["Z4"])
-    mask = pupil_geometry(fft_n, pupil_radius, obscuration)[0]
+    mask = _pupil_geometry_cached(fft_n, float(pupil_radius),
+                                  float(obscuration))[0]
     pupil = mask * np.exp(1j * phase)
     field = np.fft.fftshift(np.fft.fft2(pupil, norm="ortho"))
     psf = np.abs(field) ** 2

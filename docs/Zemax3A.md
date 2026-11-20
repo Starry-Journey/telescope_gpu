@@ -38,7 +38,7 @@ ZMX
  -> Zernike/波前分析
  -> Z = (Zplus - Zminus)/(2δ)
  -> S (3x5)
- -> Web ③C / CSV
+ -> Qt ③C / CSV
 ```
 
 ### 2.1 控制量
@@ -60,16 +60,18 @@ Z9,...
 
 这个 CSV 直接粘贴/上传到 ⑦“自定义 S”，即可求 rank/condition 和控制量。
 
-## 3. Job queue
+## 3. Job queue（本地 SQLite）
+
+旧 Web 的 HTTP 作业路由（`POST /api/zemax/jobs` 等）已随 Web 删除。当前队列为
+`products/jobs/store.py` 的本地 SQLite（`results/jobs.sqlite3`，可删、自动重建）：
 
 ```text
-POST /api/zemax/jobs   {name,data_b64} -> {job_id,status:"queued"}
-GET  /api/jobs/{id}                     -> 状态/结果（不返回 ZMX base64）
-POST /api/jobs/claim   {kind:"zemax"}   -> worker 领取
-POST /api/jobs/{id}/complete {result}   -> worker 完成
+submit(kind="zemax", payload) -> job_id
+claim(kind="zemax", worker)   -> 作业（状态 running）
+complete(job_id, result) / fail(job_id, error)
 ```
 
-存储：`results/jobs.sqlite3`（可删，自动重建）。
+Windows worker 与桌面/批处理进程共享同一 DB 文件，不经过 HTTP/浏览器。
 
 ## 4. Windows 外部批处理契约
 
@@ -83,11 +85,11 @@ TEL_ZOS_BATCH_CMD <model.zmx> <perturb.yaml> <out.csv>
 
 ```bat
 set TEL_ZOS_BATCH_CMD=python C:\zos\run_zos_batch.py
-python scripts\zemax_zos_worker.py --api http://<linux-host>:8000
+python scripts\zemax_zos_worker.py
 ```
 
 `run_zos_batch.py` 用 ZOS-API 打开 ZMX、按 `perturb.yaml` 施加 M2 5-DOF、
-导出 3×5 CSV。Linux 侧只负责队列/校验/UI，不接触 OpticStudio license。
+导出 3×5 CSV。Linux/桌面侧只负责队列/校验/UI，不接触 OpticStudio license。
 
 ### 4.1 队列测试（Linux，不需要 Zemax）
 
@@ -95,7 +97,7 @@ python scripts\zemax_zos_worker.py --api http://<linux-host>:8000
 python3 scripts/zemax_zos_worker.py --mock
 ```
 
-返回明确标 `mock: true` 的 3×5 占位 S，只用于验证 Web/队列。
+返回明确标 `mock: true` 的 3×5 占位 S，只用于验证本地队列，不能当 Zemax 结果。
 
 ## 5. 边界
 
@@ -125,10 +127,10 @@ m2_tilt_y:     Z8 = +0.500
 m2_focus:      Z4 = -0.987
 ```
 
-端点：
+数据文件：
 
 ```text
-GET /api/zemax/sensitivity
+data/zemax/sensitivity.csv / sensitivity.json
 ```
 
 **注意**：这是 rayoptics 的 OPD/有限差分，不是 OpticStudio 的 Zernike 分析；
@@ -140,4 +142,4 @@ baseline OPD 仍很大（Z4≈30.6 waves），说明模型/参考球/采样需�
 - ZMX 能读、能追迹、能生成 S；
 - S 的符号/量级可用于算法链验证；
 - 真实 Zemax 对照仍需学生版/学校 license；
-- `GET /api/zemax/sensitivity` 可直接给 ③C 做控制。
+- `data/zemax/sensitivity*.json` 可直接给 Qt ③C 做控制（`source="auto"` 优先真实文件）。

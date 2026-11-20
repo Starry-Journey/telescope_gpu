@@ -19,6 +19,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Windows consoles default to GBK and raise UnicodeEncodeError on the Chinese
+# doc paths printed below; force UTF-8 so the checker is usable everywhere.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):      # pragma: no cover - py<3.7/redirected
+        pass
+
 SKIP_DIRS = {"docs/archive", "archive", "results", ".git", "build", "dist", "node_modules"}
 # roadmap doc lists planned (not yet existing) files by design
 SKIP_FILES = {"docs/后续优化方向.md"}
