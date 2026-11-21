@@ -1,3 +1,5 @@
+> **已归档**：本文按旧 FastAPI/React 写成；Web UI/API 已移至 `archive/legacy-web/`，桌面主路径是 `desktop/qt_app.py`（PySide6）。内容仅供追溯。
+
 # FastAPI + React + Plotly 科学计算小程序
 
 > 代码：`web/api/main.py`、`web/ui/index.html`
@@ -83,6 +85,9 @@ POST /api/invert   -> truth [0.6,-0.2,0.1]
                       BOBYQA [0.596,-0.221,0.110]
                       nfev 30, cost 1.2e-7
 POST /api/ccd      -> 320×320, 40 stars, PNG ~0.7 MB
+GET  /api/framework -> 3x5 metadata/default target
+POST /api/framework/sensitivity -> S rank=3 cond=1.0897 nullspace=2
+POST /api/framework/control     -> u/residual/cost
 GET  / -> 200
 ```
 

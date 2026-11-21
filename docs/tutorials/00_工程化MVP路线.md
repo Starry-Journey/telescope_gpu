@@ -12,7 +12,7 @@
 
 | 类别 | 具体产出 | 验收 |
 |---|---|---|
-| 代码仓库 | `telescope_gpu`：C++/CUDA + `pipeline/` + `numerics/` + `ml/` + `web/` | `git clone` 后按 README 能构建 |
+| 代码仓库 | `telescope_gpu`：C++/CUDA + `pipeline/` + `numerics/` + `ml/`（Web 前端已删除） | `git clone` 后按 README 能构建 |
 | 数据集 | `data/ccd_pipeline/` 仿真 FITS（raw/bias/dark/flat/catalog/truth） | `--force-sim` 可重建；`dataset.json` 记录参数 |
 | 指标 | `results/ccd_pipeline/metrics.json`、`ml/results/comparison.csv`、benchmark CSV | 数字能由命令复现 |
 | 可视化 | `fig_*.png`、FastAPI/React 小程序、Word/PDF 技术说明 | 一页能讲清数据流和结果 |
@@ -87,5 +87,5 @@ MVP 先做**单页 + 只读/仿真 API**；不做用户系统/数据库。
 
 - 主报告解决“5 帧相位差 → Z4/Z8/Z9 → 波前 RMS”的科学问题；
 - 本 MVP 的 `numerics/` 是可复用的数值核心，`ml/` 是学习型反演的**方法验证**（64×64 PSF 代理模型），`pipeline/` 是 CCD 前端；
-- 三者不替代主求解器，数字不能混表；对齐关系见 `docs/工程化技术说明_代码对齐版.docx` 第 9 章。
+- 三者不替代主求解器，数字不能混表；对齐关系见 `docs/archive/reports/工程化技术说明_代码对齐版.docx` 第 9 章。
 

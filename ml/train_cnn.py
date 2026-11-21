@@ -48,13 +48,15 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--noise", type=float, default=0.01)
     ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--device", default="cpu",
+                    help="torch device for training/eval (default: cpu)")
     ap.add_argument("--out", default="ml/runs")
     args = ap.parse_args()
 
     torch.set_num_threads(args.threads)
     torch.manual_seed(42)
     np.random.seed(42)
-    device = torch.device("cpu")
+    device = torch.device(args.device)
 
     dcfg = DataConfig(n=args.n, samples=args.samples, noise_sigma=args.noise)
     train_loader, val_loader = make_loaders(dcfg, batch_size=args.batch)

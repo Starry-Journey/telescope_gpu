@@ -87,11 +87,17 @@ def psf_from_coeff(coeff: torch.Tensor, defocus: float,
 
 def forward_stack(coeff: torch.Tensor,
                   cfg: ForwardConfig = ForwardConfig(),
-                  add_noise: bool = False) -> torch.Tensor:
+                  add_noise: bool = False,
+                  noise_generator: "torch.Generator | None" = None) -> torch.Tensor:
     """Return (..., n_frames, n, n) phase-diversity stack.
 
     The five frames share the same Zernike coefficients but have known defocus
     offsets.  Noise is relative Gaussian, clipped at zero.
+
+    ``noise_generator``: optional independent ``torch.Generator`` used as the
+    noise source (e.g. a fixed-seed generator so the validation set sees the
+    same noise every epoch).  ``None`` keeps the historical behaviour: noise
+    comes from the global RNG, i.e. fresh every call.
     """
     frames = [psf_from_coeff(coeff, d, cfg) for d in cfg.defocus]
     out = torch.stack(frames, dim=-3)
@@ -99,7 +105,14 @@ def forward_stack(coeff: torch.Tensor,
         # noise is relative to the frame peak, not to 1.0: a normalised PSF
         # has peak ~1/n^2, so an absolute 1% would swamp the signal.
         peak = out.amax(dim=(-2, -1), keepdim=True).clamp_min(1e-12)
-        out = out + cfg.noise_sigma * peak * torch.randn_like(out)
+        if noise_generator is None:
+            noise = torch.randn_like(out)
+        else:
+            # torch.randn_like has no generator argument, so draw explicitly;
+            # generator must live on the same device as ``out``
+            noise = torch.randn(out.shape, generator=noise_generator,
+                                dtype=out.dtype, device=out.device)
+        out = out + cfg.noise_sigma * peak * noise
         out = out.clamp_min(0.0)
         out = out / out.sum(dim=(-2, -1), keepdim=True).clamp_min(1e-12)
     return out

@@ -28,6 +28,9 @@ inverse_result.txt
 
 # ---- local / editor junk ----
 .vscode/settings.json.bak
+.ruff_cache/
+dist/
+.venv/
 nano.save
 *.save
 *.swp
@@ -49,6 +52,19 @@ __pycache__/
 ml/runs/
 ml/results/
 *.pt
-!docs/data/*.csv
 !docs/data/
 !docs/data/*.csv
+~$*
+qt_tasks/
+results/jobs.sqlite3
+
+# ---- Abaqus scratch (keep the exported CSVs, drop solver binaries) ----
+data/fea_cases/abaqus_m1/odb/
+data/fea_cases/abaqus_m1/*_top.csv.tmp
+
+# ---- packaged hand-off artifacts (regenerate with scripts/package_sim_inputs.py) ----
+release/
+
+# ---- runtime evidence (regenerable) ----
+results/pipeline/
+results/bench/

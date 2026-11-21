@@ -5,6 +5,15 @@
 #include <stdexcept>
 #include <string>
 
+// ---------------------------------------------------------------------------
+// Numerical core implementation
+//   solve_linear : partial-pivot LU
+//   least_squares: Householder QR / SVD fallback
+//   fft          : radix-2 Cooley-Tukey
+//   solve_ode_*  : fixed-step RK4
+// All public functions validate shape/finiteness before touching Eigen.
+// ---------------------------------------------------------------------------
+
 namespace telescope {
 namespace numerics {
 namespace {
@@ -12,6 +21,12 @@ namespace {
 void check_finite(const Matrix& A) {
     if (!A.allFinite()) {
         throw std::invalid_argument("matrix contains NaN/Inf");
+    }
+}
+
+void check_finite(const Vector& b) {
+    if (!b.allFinite()) {
+        throw std::invalid_argument("right-hand side contains NaN/Inf");
     }
 }
 
@@ -54,6 +69,7 @@ Vector solve_linear(const Matrix& A, const Vector& b) {
         throw std::invalid_argument("solve_linear: b size mismatch");
     }
     check_finite(A);
+    check_finite(b);
     Eigen::FullPivLU<Matrix> lu(A);
     if (!lu.isInvertible()) {
         throw std::runtime_error("solve_linear: matrix is singular");
@@ -69,6 +85,7 @@ Vector least_squares(const Matrix& A, const Vector& b) {
         throw std::invalid_argument("least_squares: empty system");
     }
     check_finite(A);
+    check_finite(b);
     return A.colPivHouseholderQr().solve(b);
 }
 
@@ -80,6 +97,7 @@ Vector least_squares_svd(const Matrix& A, const Vector& b) {
         throw std::invalid_argument("least_squares_svd: empty system");
     }
     check_finite(A);
+    check_finite(b);
     return A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
 }
 

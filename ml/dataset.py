@@ -2,9 +2,10 @@
 
 Each sample is a 5-frame defocused PSF stack plus the three Zernike
 coefficients that generated it.  Generating on the fly avoids storing a large
-tensor and lets the CNN see fresh noise every epoch.  The coefficient ranges
-match the traditional solver's search box (Z4 in +-1.5 waves, Z8/Z9 in
-+-0.5 waves).
+tensor and lets the CNN see fresh training noise every epoch; the validation
+split is pre-generated once with a fixed noise seed and cached (see
+``PhaseDataset``).  The coefficient ranges match the traditional solver's
+search box (Z4 in +-1.5 waves, Z8/Z9 in +-0.5 waves).
 """
 from __future__ import annotations
 
@@ -28,30 +29,51 @@ class DataConfig:
 
 
 class PhaseDataset(Dataset):
-    """Synthetic (5, n, n) -> (3,) regression dataset."""
+    """Synthetic (5, n, n) -> (3,) regression dataset.
+
+    Validation (``train=False``) pre-generates the whole set once with an
+    independent fixed-seed noise ``torch.Generator`` and caches the tensors,
+    so every epoch sees the same validation noise (stable val metrics, and
+    "best checkpoint" selection no longer chases noise redraws).  Training
+    keeps on-the-fly generation: coefficients stay per-idx seeded, noise is
+    drawn from the global RNG and therefore fresh every epoch.
+    """
 
     def __init__(self, cfg: DataConfig, train: bool = True):
         self.cfg = cfg
         self.train = train
         self.fwd = ForwardConfig(n=cfg.n, noise_sigma=cfg.noise_sigma)
         self.base_seed = cfg.seed if train else cfg.seed + 100_000
+        # noise seed space is disjoint from the coefficient seed space
+        self.noise_seed = cfg.seed + 200_000
+        self._val_cache: list = []
+        if not train:
+            noise_gen = torch.Generator().manual_seed(self.noise_seed)
+            for idx in range(self.cfg.samples):
+                self._val_cache.append(self._sample(idx, noise_gen=noise_gen))
 
-    def __len__(self):
-        return self.cfg.samples
-
-    def __getitem__(self, idx: int):
+    def _sample(self, idx: int, noise_gen=None):
         g = torch.Generator().manual_seed(self.base_seed + int(idx))
         c4 = (torch.rand(1, generator=g) * 2 - 1) * self.cfg.c4_range
         c8 = (torch.rand(1, generator=g) * 2 - 1) * self.cfg.c8_range
         c9 = (torch.rand(1, generator=g) * 2 - 1) * self.cfg.c9_range
         coeff = torch.cat([c4, c8, c9]).float()
-        stack = forward_stack(coeff, self.fwd, add_noise=True).float()
+        stack = forward_stack(coeff, self.fwd, add_noise=True,
+                              noise_generator=noise_gen).float()
         # per-frame peak normalisation: PSF values are ~1/n^2 after sum=1,
         # which is a very small CNN input; dividing by the peak keeps the
         # shape and makes the first conv gradients well scaled.
         stack = stack / stack.amax(dim=(-2, -1), keepdim=True).clamp_min(1e-12)
         norm = torch.tensor([self.cfg.c4_range, self.cfg.c8_range, self.cfg.c9_range])
         return stack, coeff, coeff / norm
+
+    def __len__(self):
+        return self.cfg.samples
+
+    def __getitem__(self, idx: int):
+        if self._val_cache:
+            return self._val_cache[idx]
+        return self._sample(idx)
 
 
 def make_loaders(cfg: DataConfig, batch_size: int = 64, workers: int = 0):

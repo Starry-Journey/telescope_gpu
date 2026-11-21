@@ -4,9 +4,14 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cpu-and-pipeline:
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -14,7 +19,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake libeigen3-dev libgtest-dev libbenchmark-dev \
-            pybind11-dev python3-numpy python3-scipy python3-astropy python3-matplotlib
+            pybind11-dev python3-numpy python3-scipy python3-astropy python3-matplotlib python3-nlopt python3-pil
       - name: Configure CPU build
         run: cmake -S . -B build -DTEL_BUILD_CUDA=OFF -DTEL_BUILD_NUMERICS=OFF
       - name: Build CPU layer
@@ -22,8 +27,57 @@ jobs:
       - name: CTest (CPU + Python pipeline)
         run: ctest --test-dir build --output-on-failure
 
+      - name: Product services (numpy-only)
+        run: |
+          set +e
+          python3 -m unittest discover -s products/tests -v 2>&1 | tee /tmp/products-tests.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            # surface the failing test names/blocks as annotations (job logs need
+            # auth, annotations do not)
+            grep -E "^(FAIL|ERROR):" /tmp/products-tests.log | sed 's/^/::error::/' || true
+            grep -A6 -E "^(FAIL|ERROR):" /tmp/products-tests.log | head -40 || true
+            exit 1
+          fi
+
+      - name: Doc link check
+        run: python3 scripts/check_doc_links.py
+
+      - name: Ruff (E/F/I, advisory until baseline is cleaned; config in pyproject.toml)
+        continue-on-error: true
+        run: |
+          pip install ruff
+          ruff check .
+
+  framework:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libeigen3-dev
+      - name: Configure framework
+        run: >
+          cmake -S . -B build-framework
+          -DTEL_BUILD_CUDA=OFF
+          -DTEL_BUILD_FRAMEWORK=ON
+          -DTEL_BUILD_NUMERICS=ON
+          -DTEL_NUMERICS_BUILD_TESTS=OFF
+          -DTEL_NUMERICS_BUILD_BENCH=OFF
+          -DTEL_NUMERICS_BUILD_PYTHON=OFF
+      - name: Build framework
+        run: cmake --build build-framework -j"$(nproc)"
+      - name: Framework CTest
+        run: ctest --test-dir build-framework -R framework --output-on-failure
+      - name: Framework demo
+        run: ./build-framework/framework/framework_demo results/framework
+
   numerics:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -48,4 +102,52 @@ jobs:
           print("pybind11 OK", x)
           PY
 
+  desktop-smoke:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1
+      - name: Install Python deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install PySide6 numpy scipy astropy matplotlib nlopt
+      - name: Qt headless smoke
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 desktop/qt_smoke.py
+      - name: Desktop tests (incl. TaskRunner)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 -m unittest discover -s desktop/tests -v
 
+      - name: Desktop e2e smoke (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 desktop/e2e_smoke.py
+
+  cuda-compile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    container: nvidia/cuda:12.4.1-devel-ubuntu22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake libeigen3-dev libnlopt-dev libnlopt-cxx-dev
+      - name: Configure CUDA build
+        run: >
+          cmake -S . -B build-cuda
+          -DTEL_BUILD_CUDA=ON
+          -DTEL_BUILD_NUMERICS=OFF
+          -DCMAKE_CUDA_ARCHITECTURES=86
+      - name: Compile CUDA library, apps and GPU test binary (no GPU at runner)
+        run: |
+          # limit parallelism: nvcc in the CUDA container can OOM with -j$(nproc)
+          # telescope_gpu_tests is compile-only here: it closes the "test_cuda.cu
+          # never compiled in CI" gap; execution still requires a GPU machine.
+          cmake --build build-cuda -j2 --target telescope_cuda forward_generate inverse_solve telescope_gpu_tests

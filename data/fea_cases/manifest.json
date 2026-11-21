@@ -1,0 +1,547 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "warning": "Synthetic reference cases generated from design documents. They are NOT a solved FEA model. Replace CSVs with real FEA exports and keep the same manifest fields.",
+  "source_documents": [
+    "多终端通用望远镜详细设计方案20240408-修订.pdf",
+    "紫金山天文台多终端通用望远镜建设方案20231012.docx"
+  ],
+  "design": {
+    "M1": {
+      "aperture_mm": 2500.0,
+      "outer_diameter_mm": 2560.0,
+      "central_hole_mm": 700.0,
+      "edge_thickness_mm": 260.0,
+      "material": "Zerodur (微晶玻璃)",
+      "supports": "36 bottom (6-12-12-6) + 24 side whiffletree",
+      "surface_rms_spec_nm": 6.3
+    },
+    "M2": {
+      "aperture_mm": 500.0,
+      "material": "Zerodur",
+      "supports": "6-point suspended whiffletree",
+      "dof": "5-DOF adjustment (x/y translation, x/y tilt, focus)"
+    },
+    "M3": {
+      "aperture_mm": 500.0,
+      "effective_mm": [
+        500.0,
+        250.0
+      ],
+      "material": "Zerodur",
+      "supports": "6-point bottom whiffletree + center Invar",
+      "surface_rms_spec_nm": 3.2
+    }
+  },
+  "cases": [
+    {
+      "id": "M1_gravity_0deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis horizontal",
+      "file": "M1_gravity_0deg.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 6.4873,
+      "actual_rms_nm": 6.447399130446301,
+      "n_points": 18036,
+      "source_page": "p.113-114",
+      "assumption": "",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.55,
+        "6": 0.35,
+        "7": 0.25,
+        "8": 0.25
+      }
+    },
+    {
+      "id": "M1_gravity_90deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis vertical",
+      "file": "M1_gravity_90deg.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 23.199,
+      "actual_rms_nm": 23.03899229009832,
+      "n_points": 18036,
+      "source_page": "p.113-114",
+      "assumption": "",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.4,
+        "6": 0.4,
+        "9": 0.2,
+        "10": 0.2
+      }
+    },
+    {
+      "id": "M1_thermal_plus20K",
+      "surface": "M1",
+      "load_case": "thermal +20 K (synthetic)",
+      "file": "M1_thermal_plus20K.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 8.0,
+      "actual_rms_nm": 7.920315562702639,
+      "n_points": 18036,
+      "source_page": "p.137",
+      "assumption": "RMS is a placeholder until FEA thermal case is supplied",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.15,
+        "6": 0.1
+      }
+    },
+    {
+      "id": "M1_thermal_minus20K",
+      "surface": "M1",
+      "load_case": "thermal -20 K (synthetic)",
+      "file": "M1_thermal_minus20K.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 8.0,
+      "actual_rms_nm": 7.920315562702638,
+      "n_points": 18036,
+      "source_page": "p.137",
+      "assumption": "RMS is a placeholder until FEA thermal case is supplied",
+      "synthetic": true,
+      "modes_nm": {
+        "4": -1.0,
+        "5": 0.15,
+        "6": -0.1
+      }
+    },
+    {
+      "id": "M2_gravity_0deg",
+      "surface": "M2",
+      "load_case": "gravity: mirror horizontal (synthetic)",
+      "file": "M2_gravity_0deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 4.6,
+      "actual_rms_nm": 4.599543351736783,
+      "n_points": 797,
+      "source_page": "p.124",
+      "assumption": "aperture 500 mm is an assumption",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.4,
+        "6": 0.3
+      }
+    },
+    {
+      "id": "M2_gravity_90deg",
+      "surface": "M2",
+      "load_case": "gravity: mirror vertical (synthetic)",
+      "file": "M2_gravity_90deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 4.7,
+      "actual_rms_nm": 4.699934309749498,
+      "n_points": 797,
+      "source_page": "p.124",
+      "assumption": "aperture 500 mm is an assumption",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 0.4,
+        "5": 1.0,
+        "6": 0.5
+      }
+    },
+    {
+      "id": "M3_gravity_45deg",
+      "surface": "M3",
+      "load_case": "gravity: M3 at 45 deg (synthetic)",
+      "file": "M3_gravity_45deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 4.23,
+      "actual_rms_nm": 4.229608678054707,
+      "n_points": 797,
+      "source_page": "p.131",
+      "assumption": "rectangular 500x250 approximated by a 500 mm circular aperture",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 1.0,
+        "5": 0.5,
+        "6": 0.3
+      }
+    },
+    {
+      "id": "M3_gravity_90deg",
+      "surface": "M3",
+      "load_case": "gravity: M3 vertical (synthetic)",
+      "file": "M3_gravity_90deg.csv",
+      "aperture_radius_mm": 250.0,
+      "obscuration_ratio": 0.0,
+      "unit": "nm",
+      "target_rms_nm": 1.726,
+      "actual_rms_nm": 1.7258427584195357,
+      "n_points": 797,
+      "source_page": "p.131",
+      "assumption": "rectangular 500x250 approximated by a 500 mm circular aperture",
+      "synthetic": true,
+      "modes_nm": {
+        "4": 0.6,
+        "5": 0.3,
+        "6": 0.2
+      }
+    },
+    {
+      "id": "M1_calculix_0deg",
+      "surface": "M1",
+      "load_case": "CalculiX 2.23 simplified, gravity 0 deg",
+      "file": "calculix/m1_0deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 30.73,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "assumption": "simplified plate, fixed 36 bottom + 24 side supports; not design-spec",
+      "synthetic": false,
+      "model": "calculix-simplified"
+    },
+    {
+      "id": "M1_calculix_90deg",
+      "surface": "M1",
+      "load_case": "CalculiX 2.23 simplified, gravity 90 deg",
+      "file": "calculix/m1_90deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 79.43,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "assumption": "simplified plate, fixed 36 bottom + 24 side supports; not design-spec",
+      "synthetic": false,
+      "model": "calculix-simplified"
+    },
+    {
+      "id": "M1_distributed_0deg",
+      "surface": "M1",
+      "load_case": "CalculiX distributed springs, gravity 0 deg",
+      "file": "calculix_distributed/m1_0deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 6.4873,
+      "actual_rms_nm": 3.23,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "synthetic": false,
+      "model": "distributed-spring, simplified plate",
+      "assumption": "elastic foundation, not real whiffletree/contact"
+    },
+    {
+      "id": "M1_distributed_90deg",
+      "surface": "M1",
+      "load_case": "CalculiX distributed springs, gravity 90 deg",
+      "file": "calculix_distributed/m1_90deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": 23.199,
+      "actual_rms_nm": 8.9,
+      "n_points": 720,
+      "source_page": "CalculiX 2.23",
+      "synthetic": false,
+      "model": "distributed-spring, simplified plate",
+      "assumption": "elastic foundation, not real whiffletree/contact"
+    },
+    {
+      "id": "M1_abq_gravity_0deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis horizontal",
+      "file": "abaqus_m1/M1_gravity_0deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 3.153,
+      "fit_residual_rms_nm": 1.412,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, 36 bottom + 24 side spring pads (k=1e6/5e5 N/mm)",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -0.011879,
+        "Z8": -0.10708,
+        "Z9": 0.013022
+      }
+    },
+    {
+      "id": "M1_abq_gravity_90deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis vertical",
+      "file": "abaqus_m1/M1_gravity_90deg_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 1121.977,
+      "fit_residual_rms_nm": 4.95,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, 36 bottom + 24 side spring pads (k=1e6/5e5 N/mm)",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -380.527304,
+        "Z8": 1.070777,
+        "Z9": 0.070814
+      }
+    },
+    {
+      "id": "M1_abq_thermal_plus20K",
+      "surface": "M1",
+      "load_case": "uniform +20 K soak",
+      "file": "abaqus_m1/M1_thermal_plus20K_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 270.334,
+      "fit_residual_rms_nm": 0.483,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, Zerodur alpha=5e-8/K, spring-restrained growth",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 0.036726,
+        "Z8": -0.001665,
+        "Z9": 0.000162
+      }
+    },
+    {
+      "id": "M1_abq_thermal_minus20K",
+      "surface": "M1",
+      "load_case": "uniform -20 K soak",
+      "file": "abaqus_m1/M1_thermal_minus20K_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 270.334,
+      "fit_residual_rms_nm": 0.483,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, Zerodur alpha=5e-8/K, spring-restrained growth",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -0.036726,
+        "Z8": 0.001665,
+        "Z9": -0.000162
+      }
+    },
+    {
+      "id": "M1_abq_thermal_grad20K",
+      "surface": "M1",
+      "load_case": "radial soak gradient 0 K at ID -> +20 K at OD (ASSUMED profile)",
+      "file": "abaqus_m1/M1_thermal_grad20K_top.csv",
+      "aperture_radius_mm": 1250.0,
+      "obscuration_ratio": 0.28,
+      "unit": "nm",
+      "target_rms_nm": null,
+      "actual_rms_nm": 167.007,
+      "fit_residual_rms_nm": 0.865,
+      "n_points": 6410,
+      "source_page": "Abaqus 2025 solve 2026-11-19",
+      "assumption": "idealized whiffletree springs, plate-level geometry; not the full telescope",
+      "synthetic": false,
+      "model": "Abaqus 2025, 10 annular temperature bands",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 81.596822,
+        "Z8": -0.057446,
+        "Z9": -0.036158
+      }
+    },
+    {
+      "id": "M1_design_gravity_0deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis horizontal",
+      "file": "abaqus_design/M1_gravity_0deg_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 3.677,
+      "fit_residual_rms_nm": 1.763,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 0.0006866186608113778,
+        "Z8": -0.03752071653664851,
+        "Z9": 0.016494995551316505
+      }
+    },
+    {
+      "id": "M1_design_gravity_90deg",
+      "surface": "M1",
+      "load_case": "gravity: optical axis vertical",
+      "file": "abaqus_design/M1_gravity_90deg_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 1270.961,
+      "fit_residual_rms_nm": 6.134,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -469.9728054280899,
+        "Z8": -0.22909324202808534,
+        "Z9": -0.6388923914845321
+      }
+    },
+    {
+      "id": "M1_design_thermal_plus5K",
+      "surface": "M1",
+      "load_case": "uniform +5 K (design: 15..25 degC)",
+      "file": "abaqus_design/M1_thermal_plusDT_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 135.176,
+      "fit_residual_rms_nm": 0.338,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 0.051914924581779875,
+        "Z8": -0.002112802966487408,
+        "Z9": -0.0019263215451564147
+      }
+    },
+    {
+      "id": "M1_design_thermal_minus5K",
+      "surface": "M1",
+      "load_case": "uniform -5 K (design: 15..25 degC)",
+      "file": "abaqus_design/M1_thermal_minusDT_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 135.176,
+      "fit_residual_rms_nm": 0.338,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": -0.051914924581779875,
+        "Z8": 0.002112802966487408,
+        "Z9": 0.0019263215451564147
+      }
+    },
+    {
+      "id": "M1_design_thermal_grad5K",
+      "surface": "M1",
+      "load_case": "radial soak gradient 0->5 K (assumed profile)",
+      "file": "abaqus_design/M1_thermal_gradDT_design_top.csv",
+      "aperture_radius_mm": 1280.0,
+      "obscuration_ratio": 0.2734375,
+      "unit": "nm",
+      "target_rms_nm": 15.82,
+      "actual_rms_nm": 83.206,
+      "fit_residual_rms_nm": 0.476,
+      "n_points": 3761,
+      "source_page": "设计文档 表2 主镜 M1 设计参数列表 (p.14)",
+      "assumption": "documented OD/ID/thickness/material; support layout + flat geometry assumed",
+      "synthetic": false,
+      "model": "abaqus-m1-design-doc",
+      "label": "FEA-PROVISIONAL",
+      "zernike_nm": {
+        "Z4": 40.166365611999346,
+        "Z8": -0.007458593999161156,
+        "Z9": -0.03839425141778019
+      }
+    }
+  ],
+  "abaqus_model": {
+    "script": "scripts/abaqus_m1_whiffletree.py",
+    "solver": "Abaqus 2025 (SIMULIA Established Products)",
+    "geometry": "annular Zerodur disk OD 2500 / ID 700 / t 260 mm",
+    "supports": "36 bottom pads (6-12-12-6) + 24 side pads; each pad spread over a 70 mm (bottom) / 45 mm (side) node patch as springs to ground",
+    "stiffness_N_per_mm": {
+      "bottom": 1000000.0,
+      "side": 500000.0
+    },
+    "mesh": "C3D8R, seed 30 mm, 6410 top-surface nodes",
+    "convergence": "seed 45 -> 30 changes gravity-90 surface RMS by 4% (1171 -> 1122 nm); point springs are avoided because they diverge under mesh refinement",
+    "material": {
+      "E_MPa": 90000.0,
+      "nu": 0.24,
+      "rho_t_mm3": 2.53e-09,
+      "alpha_per_K": 5e-08
+    },
+    "warning": "plate-level model; magnitudes depend on the assumed pad stiffness and exceed the design RMS spec"
+  },
+  "abaqus_design_model": {
+    "script": "scripts/abaqus_m1_design.py / scripts/abaqus_m1_whiffletree.py (parameterised)",
+    "documented": {
+      "R_vertex_mm": 7331.0,
+      "conic": -1.02347,
+      "outer_diameter_mm": 2560.0,
+      "clear_aperture_mm": 2500.0,
+      "central_hole_mm": 700.0,
+      "edge_thickness_mm": 260.0,
+      "thickness_ratio": "9:1",
+      "material": "微晶玻璃 (sitall, 标准级)",
+      "cte_per_K": "1e-7 (upper bound from text)",
+      "spec_rms_nm": 15.82,
+      "thermal_range_K": "15..25 degC -> +/-5 K"
+    },
+    "assumed": {
+      "support_layout": "36 axial (6-12-12-6) + 24 lateral (NOT in text)",
+      "lightweighting": "solid annulus (no rib pattern in text)",
+      "E_MPa": 90000.0,
+      "nu": 0.24,
+      "rho_t_mm3": 2.53e-09,
+      "alpha_used_per_K": 1e-07,
+      "pad_patch_mm": [
+        70.0,
+        45.0
+      ]
+    },
+    "limitations": [
+      "conic sag (~106.6 mm at the edge) not modelled: CAE BaseSolidRevolve fails in this Abaqus install; the model is a flat annulus with the documented OD/ID/thickness"
+    ],
+    "label": "FEA-PROVISIONAL"
+  }
+}

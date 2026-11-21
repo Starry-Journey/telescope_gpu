@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCD 科学计算小程序 · 仿真与反演</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  :root{--navy:#1f2a44;--blue:#2e5e8c;--teal:#2a9d8f;--orange:#c05a3f;--bg:#f4f7fb;--line:#dbe3ee}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--navy);font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  header{background:linear-gradient(135deg,#1f2a44,#2e5e8c);color:#fff;padding:30px 6vw 24px}
+  header h1{margin:0 0 6px;font-size:26px}
+  header p{margin:0;opacity:.85;font-size:14px}
+  .flow{display:flex;gap:10px;flex-wrap:wrap;padding:12px 6vw;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .flow a{font-size:13px;color:var(--blue);text-decoration:none;background:#eef4fb;border-radius:20px;padding:5px 12px}
+  .flow a:hover{background:#dceafa}
+  main{padding:24px 6vw 60px;display:grid;grid-template-columns:340px 1fr;gap:22px}
+  @media(max-width:980px){main{grid-template-columns:1fr}}
+  .panel{background:#fff;border-radius:14px;padding:20px;box-shadow:0 10px 28px rgba(31,42,68,.08)}
+  .panel h2{font-size:16px;margin:0 0 14px;color:var(--blue)}
+  .row{display:flex;justify-content:space-between;font-size:13px;margin:12px 0 4px;color:#5f6b7a}
+  input[type=range]{width:100%;accent-color:var(--teal)}
+  button{width:100%;border:0;border-radius:9px;padding:11px 14px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;margin-top:12px}
+  .primary{background:var(--teal)} .secondary{background:var(--blue)} .ghost{background:#eaf2fa;color:var(--blue)}
+  button:disabled{opacity:.55;cursor:wait}
+  .frames{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}
+  .frames figure{margin:0;background:#0b1020;border-radius:8px;overflow:hidden}
+  .frames img{width:100%;display:block}
+  .frames figcaption{font-size:11px;color:#c9d6e3;text-align:center;padding:4px 0;background:#111a2e}
+  .ccd img{width:100%;border-radius:10px;display:block;margin-top:12px}
+  .ccd .cap{font-size:12px;color:#5f6b7a;margin-top:6px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+  .card{background:#f4f7fb;border-radius:9px;padding:10px 12px}
+  .card .k{font-size:12px;color:#5f6b7a}.card .v{font-size:18px;font-weight:700;margin-top:4px}
+  #chart{width:100%;height:270px}
+  .hint{font-size:12px;color:#8a94a6;line-height:1.6}
+  .tag{display:inline-block;font-size:11px;background:#e8f5f1;color:#1d7a70;padding:2px 7px;border-radius:20px;margin-right:6px}
+  .err{background:#fbe9e3;color:#8b2e2e;border-radius:8px;padding:10px;font-size:13px;margin-top:10px}
+  .fw-section{padding:0 6vw 60px}
+  .fw-grid{display:grid;grid-template-columns:320px 1fr;gap:18px}
+  @media(max-width:980px){.fw-grid{grid-template-columns:1fr}}
+  .numgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .numgrid label{font-size:12px;color:#5f6b7a;display:block}
+  .numgrid input{width:100%;border:1px solid var(--line);border-radius:7px;padding:7px;font-size:13px;margin-top:3px}
+  .fw-chart{width:100%;height:300px}
+  .fw-note{font-size:12px;color:#8a94a6;line-height:1.6;margin-top:8px}
+  .fw-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+  .fw-table th,.fw-table td{border-bottom:1px solid var(--line);padding:5px 4px;text-align:right}
+  .fw-table th:first-child,.fw-table td:first-child{text-align:left}
+  .fea-grid{display:grid;grid-template-columns:300px 1fr;gap:18px}
+  @media(max-width:980px){.fea-grid{grid-template-columns:1fr}}
+  .fea-chart{width:100%;height:280px}
+  .fea-select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px;margin-top:6px}
+  .fea-warn{background:#fff6e5;color:#7a5b1e;border-radius:8px;padding:9px;font-size:12px;line-height:1.55;margin-top:10px}
+  .product-frames{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px}
+  .product-frames figure{margin:0;background:#0b1020;border-radius:8px;overflow:hidden}
+  .product-frames img{width:100%;display:block}
+  .product-frames figcaption{font-size:10px;color:#c9d6e3;text-align:center;padding:3px}
+  .matrix-input{width:100%;height:120px;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:Consolas,monospace;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>CCD 科学计算小程序</h1>
+  <p>相位差 PSF 仿真生成 · CNN 初值 + BOBYQA 反演 · React + FastAPI + Plotly</p>
+</header>
+<nav class="flow">
+  <a href="#product-root">① CCD → PSF</a>
+  <a href="#pdChart">② PD 反演</a>
+  <a href="#framework-root">③ S → 控制量</a>
+  <a href="#fea-root">③B FEA 环境 S</a>
+  <a href="#custom-root">③C 自定义矩阵</a>
+</nav>
+<main>
+  <section class="panel">
+    <h2>附录 A：PSF 形态 / 快速反演演示（可选）</h2>
+    <div class="row"><span>Z4 离焦 c4</span><b id="c4v"></b></div>
+    <input id="c4" type="range" min="-1.5" max="1.5" step="0.01" defaultValue="0.6">
+    <div class="row"><span>Z8 彗差 x c8</span><b id="c8v"></b></div>
+    <input id="c8" type="range" min="-0.5" max="0.5" step="0.01" defaultValue="-0.2">
+    <div class="row"><span>Z9 彗差 y c9</span><b id="c9v"></b></div>
+    <input id="c9" type="range" min="-0.5" max="0.5" step="0.01" defaultValue="0.1">
+    <div class="row"><span>噪声（峰值比例）</span><b id="nv"></b></div>
+    <input id="noise" type="range" min="0" max="0.05" step="0.001" defaultValue="0.01">
+    <button class="primary" id="simBtn">生成 5 帧离焦 PSF</button>
+    <button class="secondary" id="invBtn">反演（CNN 初值 + BOBYQA）</button>
+    <button class="ghost" id="ccdBtn">生成真实感 CCD 星场</button>
+    <p class="hint" style="margin-top:14px">
+      <span class="tag">物理</span>圆孔 + Z4/Z8/Z9 + 5 帧 defocus = [-2,-1,0,1,2] waves。
+      <br><span class="tag">数值</span>64×64、2× 过采样、2×2 binning、每帧归一化。
+      <br><span class="tag">边界</span>这是仿真教学模型，不是 2.5 m 望远镜实测。
+    </p>
+  </section>
+  <section class="panel">
+    <h2>附录 A-2：仿真 / 反演结果</h2>
+    <div id="root"></div>
+  </section>
+</main>
+<section class="fw-section">
+  <div class="panel">
+    <h2>③A M2 5-DOF 代理灵敏度 → 控制量</h2>
+    <p class="hint" style="margin:0 0 14px">
+      <span class="tag">数据链</span>参数空间 → 3×5 灵敏度矩阵 → 加权最小二乘控制。
+      <span class="tag">注意</span>3×5 秩 3、零空间 2 维：目标可复现，控制量不唯一。
+    </p>
+    <div id="framework-root"></div>
+  </div>
+</section>
+<section class="fw-section">
+  <div class="panel">
+    <h2>③B FEA 案例：镜面位移 → Zernike → 环境灵敏度</h2>
+    <p class="hint" style="margin:0 0 14px">
+      <span class="tag">合成参考</span>由两版设计资料中的口径、支撑、RMS 锚点生成，<b>不是已求解的 2.5 m FEA 模型</b>。
+      真实 FEA 导出后替换 <code>data/fea_cases/*.csv</code>，接口不变。
+    </p>
+    <div id="fea-root"></div>
+  </div>
+</section>
+<section class="fw-section">
+  <div class="panel">
+    <h2>① CCD 数据管线 + 真实感仿真 + PSF</h2>
+    <p class="hint" style="margin:0 0 14px">
+      输入 Z4/Z8/Z9 + 噪声 → 多帧真实感 CCD 星场 → bias/dark/flat 定标 → 提取 PSF cutout。
+      <span class="tag">合成数据</span> 不是实测；用于验证从图像到 PSF 的数据链。
+    </p>
+    <div id="product-root"></div>
+  </div>
+</section>
+<section class="fw-section">
+  <div class="panel">
+    <h2>③C 自定义灵敏度矩阵 → 控制量</h2>
+    <p class="hint" style="margin:0 0 14px">
+      粘贴/上传任意 S 矩阵（CSV/空格分隔）→ rank/condition/nullspace → 求解控制量。
+      FEA/Zemax 生成 S 后也走同一接口。
+    </p>
+    <div id="custom-root"></div>
+  </div>
+</section>
+<script type="text/babel">
+const {useState, useEffect} = React;
+
+function App() {
+  const [sim, setSim] = useState(null);
+  const [inv, setInv] = useState(null);
+  const [ccd, setCcd] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const getParams = () => ({
+    c4: parseFloat(document.getElementById("c4").value),
+    c8: parseFloat(document.getElementById("c8").value),
+    c9: parseFloat(document.getElementById("c9").value),
+    noise: parseFloat(document.getElementById("noise").value),
+  });
+
+  const refreshLabels = () => {
+    ["c4","c8","c9","noise"].forEach(id => {
+      const el = document.getElementById(id);
+      const out = document.getElementById(id + "v");
+      if (el && out) out.textContent = Number(el.value).toFixed(3);
+    });
+  };
+
+  async function postJSON(url, body, timeoutMs = 90000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function doSim() {
+    setBusy(true); setErr(""); setInv(null);
+    try {
+      setSim(await postJSON("/api/simulate", getParams()));
+    } catch(e) {
+      setErr(e.name === "AbortError" ? "仿真超时（后端可能未启动）" : String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function doInv() {
+    setBusy(true); setErr("");
+    try {
+      const data = await postJSON("/api/invert", getParams());
+      setInv(data);
+      if (data.frames) setSim({...data, shape:data.shape || [5,64,64], coeff:data.truth, defocus:[-2,-1,0,1,2], frame_peak:[]});
+    } catch(e) {
+      setErr(e.name === "AbortError" ? "反演超时：请检查 uvicorn 日志/模型是否加载" : String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function doCcd() {
+    setBusy(true); setErr("");
+    try {
+      const data = await postJSON("/api/ccd", {stars: 40, seed: Math.floor(Math.random() * 10000)}, 120000);
+      setCcd(data);
+    } catch(e) {
+      setErr(e.name === "AbortError" ? "CCD 仿真超时" : String(e));
+    } finally { setBusy(false); }
+  }
+
+  function drawChart(d) {
+    const el = document.getElementById("chart");
+    if (!el || typeof Plotly === "undefined") return;
+    const x = ["c4","c8","c9"];
+    const traces = [
+      {type:"bar", name:"truth", x, y:d.truth, marker:{color:"#2e5e8c"}},
+      {type:"bar", name:"CNN init", x, y:d.cnn || d.init, marker:{color:"#2a9d8f"}},
+      {type:"bar", name:"BOBYQA", x, y:d.refined, marker:{color:"#c05a3f"}},
+    ];
+    Plotly.react("chart", traces, {
+      barmode:"group", margin:{l:40,r:10,t:30,b:30},
+      yaxis:{title:"waves"}, legend:{orientation:"h"},
+      paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
+    }, {displayModeBar:false});
+  }
+
+  useEffect(() => {
+    refreshLabels();
+    ["c4","c8","c9","noise"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", refreshLabels);
+    });
+    doSim();
+    const sb = document.getElementById("simBtn");
+    const ib = document.getElementById("invBtn");
+    const cb = document.getElementById("ccdBtn");
+    if (sb) sb.onclick = doSim;
+    if (ib) ib.onclick = doInv;
+    if (cb) cb.onclick = doCcd;
+  }, []);
+
+  useEffect(() => {
+    if (inv) drawChart(inv);
+  }, [inv]);
+
+  const frames = sim ? sim.frames : [];
+  const defocus = sim ? sim.defocus : [];
+  const params = getParams();
+
+  return (
+    <>
+      <div className="frames">
+        {frames.map((src,i) => (
+          <figure key={i}><img src={src} alt={"frame "+i}/><figcaption>d={defocus[i]} λ</figcaption></figure>
+        ))}
+      </div>
+      <div className="cards">
+        {sim ? <div className="card"><div className="k">帧数 / 尺寸</div><div className="v">{sim.shape[0]} / {sim.shape[1]}²</div></div> : null}
+        {sim ? <div className="card"><div className="k">噪声</div><div className="v">{params.noise.toFixed(3)}</div></div> : null}
+        {inv ? <div className="card"><div className="k">BOBYQA 评估</div><div className="v">{inv.nfev}</div></div> : null}
+        {inv ? <div className="card"><div className="k">最终 cost</div><div className="v">{Number(inv.cost).toExponential(2)}</div></div> : null}
+        {inv ? <div className="card"><div className="k">模型</div><div className="v">{inv.model_loaded ? "CNN 已加载" : "零初值"}</div></div> : null}
+      </div>
+      <div id="chart"></div>
+      {ccd ? <div className="ccd"><img src={ccd.image} alt="realistic CCD"/><div className="cap">真实感 CCD 星场：Moffat + 星芒 + 饱和/blooming + 宇宙线/热像素（{ccd.stars} 颗星）</div></div> : null}
+      {busy ? <div className="hint">计算中（BOBYQA 通常 &lt; 1 s；CCD 仿真约 1–3 s）...</div> : null}
+      {err ? <div className="err">{err}</div> : null}
+      <div style={{display:"flex", gap:8, marginTop:12}}>
+        <button className="ghost" onClick={doSim} disabled={busy}>重新生成</button>
+        <button className="secondary" onClick={doInv} disabled={busy}>反演当前帧</button>
+      </div>
+    </>
+  );
+}
+
+function FrameworkApp() {
+  const [meta, setMeta] = useState(null);
+  const [target, setTarget] = useState([0, 0, 0]);
+  const [step, setStep] = useState(0.001);
+  const [lam, setLam] = useState(1e-8);
+  const [S, setS] = useState(null);
+  const [ctrl, setCtrl] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [zmx, setZmx] = useState(null);
+  const [zmxFile, setZmxFile] = useState(null);
+  const [job, setJob] = useState(null);
+  const [rayS, setRayS] = useState(null);
+
+  async function fwPost(path, body) {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json();
+  }
+
+  function drawS(d) {
+    const el = document.getElementById("fwSChart");
+    if (!el || typeof Plotly === "undefined") return;
+    const text = d.values.map(row => row.map(v => Number(v).toFixed(2)));
+    Plotly.react("fwSChart", [{
+      z:d.values, x:d.control_names, y:d.target_names, type:"heatmap",
+      colorscale:"RdBu", zmid:0, text, texttemplate:"%{text}",
+      colorbar:{title:"dz/du", thickness:12},
+    }], {
+      margin:{l:42,r:10,t:24,b:38}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)", title:{text:`S ${d.values.length}×${d.values[0].length}  rank=${d.rank}  nullspace=${d.nullspace}`,font:{size:12}},
+      yaxis:{autorange:"reversed"},
+    }, {displayModeBar:false});
+  }
+
+  function drawC(d) {
+    const el = document.getElementById("fwCtrlChart");
+    if (!el || typeof Plotly === "undefined") return;
+    const names = meta ? meta.control_names : ["uz","ux","uy","ua","ub"];
+    Plotly.react("fwCtrlChart", [{
+      type:"bar", x:names, y:d.u, marker:{color:"#2a9d8f"},
+      name:"u (min-norm)", text:d.u.map(v => Number(v).toFixed(3)), textposition:"outside",
+    }], {
+      margin:{l:42,r:10,t:24,b:38}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"control (mm / mrad)"},
+      xaxis:{tickangle:-25},
+      title:{text:`control  rank=${d.rank}  cond=${Number(d.condition).toFixed(3)}`,font:{size:12}},
+    }, {displayModeBar:false});
+  }
+
+  async function loadAll() {
+    setBusy(true); setErr("");
+    try {
+      const m = await (await fetch("/api/framework")).json();
+      setMeta(m); setTarget(m.target);
+      const [s, c] = await Promise.all([
+        fwPost("/api/framework/sensitivity", {step:0.001}),
+        fwPost("/api/framework/control", {target:m.target, lam:1e-8, use_bounds:true}),
+      ]);
+      setS(s); setCtrl(c);
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function buildS() {
+    setBusy(true); setErr("");
+    try { setS(await fwPost("/api/framework/sensitivity", {step:Number(step)})); }
+    catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function inspectZmx() {
+    if (!zmxFile) return;
+    setBusy(true); setErr("");
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
+        r.onerror = reject;
+        r.readAsDataURL(zmxFile);
+      });
+      setZmx(await fwPost("/api/zemax/inspect", {name:zmxFile.name, data_b64:b64}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function submitZmxJob() {
+    if (!zmxFile) return;
+    setBusy(true); setErr("");
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
+        r.onerror = reject;
+        r.readAsDataURL(zmxFile);
+      });
+      setJob(await fwPost("/api/zemax/jobs", {name:zmxFile.name, data_b64:b64}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function loadRayS() {
+    try { setRayS(await (await fetch("/api/zemax/sensitivity")).json()); }
+    catch(e) { setErr(String(e)); }
+  }
+
+  async function refreshJob() {
+    if (!job) return;
+    const jid = job.job_id || job.id;
+    try { setJob(await (await fetch("/api/jobs/" + jid)).json()); }
+    catch(e) { setErr(String(e)); }
+  }
+
+  async function solveC() {
+    setBusy(true); setErr("");
+    try { setCtrl(await fwPost("/api/framework/control", {target:target.map(Number), lam:Number(lam), use_bounds:true})); }
+    catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { if (S) drawS(S); }, [S]);
+  useEffect(() => { if (ctrl) drawC(ctrl); }, [ctrl]);
+
+  const setT = (i, v) => {
+    const next = target.slice(); next[i] = Number(v); setTarget(next);
+  };
+  const maxRes = ctrl ? Math.max(...ctrl.residual.map(v => Math.abs(v))) : null;
+
+  return (
+    <div className="fw-grid">
+      <div>
+        <div className="numgrid">
+          {(meta ? meta.target_names : ["Z4","Z8","Z9"]).map((n,i) => (
+            <label key={n}>{n} target
+              <input type="number" step="0.01" value={target[i]}
+                     onChange={e => setT(i, e.target.value)} />
+            </label>
+          ))}
+        </div>
+        <div className="row"><span>差分步长 δ</span><b>{Number(step).toExponential(1)}</b></div>
+        <input type="range" min="0.0001" max="0.01" step="0.0001" value={step}
+               onChange={e => setStep(e.target.value)} />
+        <div className="row"><span>Tikhonov λ</span><b>{Number(lam).toExponential(1)}</b></div>
+        <input type="range" min="0" max="0.01" step="0.0001" value={lam}
+               onChange={e => setLam(e.target.value)} />
+        <button className="primary" onClick={buildS} disabled={busy}>重算灵敏度矩阵 S</button>
+        <button className="secondary" onClick={solveC} disabled={busy}>求解控制量 u</button>
+        <label className="hint" style={{display:"block",marginTop:10}}>上传 .ZMX（仅解析；真实 S 需 ZOS-API）</label>
+        <input type="file" accept=".zmx,.ZMX" className="fea-select" onChange={e=>setZmxFile(e.target.files[0] || null)} />
+        <button className="ghost" onClick={inspectZmx} disabled={busy || !zmxFile}>解析 ZMX 结构</button>
+        <button className="secondary" onClick={submitZmxJob} disabled={busy || !zmxFile}>提交 3A 队列</button>
+        <button className="ghost" onClick={loadRayS}>读取 rayoptics S</button>
+        {rayS ? <div className="fw-note">rayoptics OPD (not Zemax), baseline Z4={rayS.baseline_waves.Z4.toFixed(3)} waves;
+          {rayS.rows.map(r => <div key={r.control}>{r.control}: Z4={r.Z4.toExponential(2)}, Z8={r.Z8.toExponential(2)}, Z9={r.Z9.toExponential(2)}</div>)}
+        </div> : null}
+        {zmx ? <div className="fw-note">ZMX: {zmx.model.surfaces.length} 面，stop={zmx.model.stop}，ENPD={zmx.model.aperture_mm} mm；{zmx.next}</div> : null}
+        {job ? <div className="fw-note">job {job.job_id || job.id}: {job.status} <button className="ghost" style={{width:"auto",padding:"2px 8px",marginTop:4}} onClick={refreshJob}>刷新</button></div> : null}
+        <p className="fw-note">
+          目标 z=[Z4,Z8,Z9]；控制 u=[m2_focus, m2_decenter_x, m2_decenter_y, m2_tilt_x, m2_tilt_y]。
+          3×5 秩 3，零空间 2 维：目标可复现，但 u 不唯一；增大 λ 会偏向最小能量解。
+          这是 M2 5-DOF 的线性代理，不是 Zemax 实测。
+        </p>
+        {busy ? <div className="hint">计算中...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        <div className="cards">
+          {S ? <div className="card"><div className="k">S 尺寸 / rank</div><div className="v">{S.values.length}×{S.values[0].length} / {S.rank}</div></div> : null}
+          {S ? <div className="card"><div className="k">条件数 / 零空间</div><div className="v">{Number(S.condition).toFixed(3)} / {S.nullspace}</div></div> : null}
+          {ctrl ? <div className="card"><div className="k">max |residual|</div><div className="v">{maxRes.toExponential(2)}</div></div> : null}
+          {ctrl ? <div className="card"><div className="k">求解</div><div className="v">{ctrl.active_constraints ? "触及边界" : "无约束"}</div></div> : null}
+        </div>
+        <div id="fwSChart" className="fw-chart"></div>
+        <div id="fwCtrlChart" className="fw-chart"></div>
+        {meta && meta.control_meta ? (
+          <table className="fw-table">
+            <thead><tr><th>控制量</th><th>物理含义</th><th>单位</th><th>主要目标</th></tr></thead>
+            <tbody>{meta.control_meta.map(c => (
+              <tr key={c.name}><td>{c.name}</td><td>{c.physical}</td><td>{c.unit}</td><td>{c.primary_target}</td></tr>
+            ))}</tbody>
+          </table>
+        ) : null}
+        {ctrl ? (
+          <table className="fw-table">
+            <thead><tr><th>target</th><th>设定</th><th>S·u</th><th>残差</th></tr></thead>
+            <tbody>{ctrl.target.map((v,i) => (
+              <tr key={i}><td>{(meta ? meta.target_names[i] : "z"+i)}</td>
+                <td>{Number(v).toFixed(4)}</td>
+                <td>{Number(ctrl.predicted[i]).toFixed(4)}</td>
+                <td>{Number(ctrl.residual[i]).toExponential(2)}</td></tr>
+            ))}</tbody>
+          </table>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function FeaApp() {
+  const [meta, setMeta] = useState(null);
+  const [caseId, setCaseId] = useState("");
+  const [detail, setDetail] = useState(null);
+  const [sens, setSens] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [feaFile, setFeaFile] = useState(null);
+  const [feaRadius, setFeaRadius] = useState(1250);
+  const [feaObsc, setFeaObsc] = useState(0.28);
+
+  async function loadCase(id) {
+    setBusy(true); setErr("");
+    try {
+      const d = await (await fetch("/api/fea/cases/" + encodeURIComponent(id))).json();
+      setDetail(d);
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function uploadFea() {
+    if (!feaFile) return;
+    setBusy(true); setErr("");
+    try {
+      const text = await feaFile.text();
+      const rows = text.trim().split(/\n+/).slice(1).map(line => line.split(/[,\s]+/).map(Number));
+      const x = rows.map(r => r[0]), y = rows.map(r => r[1]), z = rows.map(r => r[2]);
+      const r = await fetch("/api/fea/upload", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({x, y, z, radius:Number(feaRadius), obscuration:Number(feaObsc),
+                             label:feaFile.name.replace(/\.[^.]+$/, "")}),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setDetail(await r.json());
+      setCaseId("");
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const m = await (await fetch("/api/fea/cases")).json();
+        setMeta(m);
+        const first = m.cases && m.cases.length ? m.cases[0].id : "";
+        setCaseId(first);
+        if (first) await loadCase(first);
+        setSens(await (await fetch("/api/fea/sensitivity")).json());
+      } catch(e) { setErr(String(e)); }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!detail) return;
+    const el = document.getElementById("feaMap");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("feaMap", [{
+      z:detail.grid.z, x:detail.grid.x, y:detail.grid.y, type:"heatmap",
+      colorscale:"RdBu", zmid:0, colorbar:{title:"nm",thickness:12},
+    }], {
+      margin:{l:44,r:10,t:26,b:34}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)",
+      title:{text:`${detail.case.surface}  ${detail.case.load_case}`,font:{size:12}},
+    }, {displayModeBar:false});
+  }, [detail]);
+
+  useEffect(() => {
+    if (!detail) return;
+    const el = document.getElementById("feaZ");
+    if (!el || typeof Plotly === "undefined") return;
+    const labels = detail.fit.terms.map(t => t.label);
+    Plotly.react("feaZ", [{
+      type:"bar", x:labels, y:detail.fit.coefficients_nm,
+      marker:{color:"#2e5e8c"}, name:"Zernike",
+    }], {
+      margin:{l:44,r:10,t:26,b:28}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"nm"},
+      xaxis:{tickangle:-45},
+      title:{text:`Zernike fit: RMS ${Number(detail.fit.rms_nm).toFixed(2)} nm, residual ${Number(detail.fit.residual_rms_nm).toExponential(1)} nm`,font:{size:11}},
+    }, {displayModeBar:false});
+  }, [detail]);
+
+  useEffect(() => {
+    if (!sens) return;
+    const el = document.getElementById("feaS");
+    if (!el || typeof Plotly === "undefined") return;
+    const text = sens.matrix.map(row => row.map(v => Number(v).toExponential(2)));
+    Plotly.react("feaS", [{
+      z:sens.matrix, x:sens.controls, y:sens.targets, type:"heatmap",
+      colorscale:"RdBu", zmid:0, text, texttemplate:"%{text}",
+      colorbar:{title:"waves/unit",thickness:12},
+    }], {
+      margin:{l:40,r:10,t:26,b:34}, paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)",
+      title:{text:`environmental S ${sens.matrix.length}×${sens.matrix[0].length} rank=${sens.rank} cond=${Number(sens.condition).toFixed(2)}`,font:{size:11}},
+      yaxis:{autorange:"reversed"},
+    }, {displayModeBar:false});
+  }, [sens]);
+
+  const onPick = async (e) => {
+    const id = e.target.value;
+    setCaseId(id);
+    await loadCase(id);
+  };
+  const targets = detail ? detail.fit.targets_nm : {};
+
+  return (
+    <div className="fea-grid">
+      <div>
+        <label className="hint">FEA 工况</label>
+        <select className="fea-select" value={caseId} onChange={onPick}>
+          {(meta ? meta.cases : []).map(c => (
+            <option key={c.id} value={c.id}>{c.surface} · {c.load_case}</option>
+          ))}
+        </select>
+        <label className="hint" style={{display:"block",marginTop:10}}>真实 FEA CSV：x_mm,y_mm,dz_nm</label>
+        <input className="fea-select" type="file" accept=".csv,.txt" onChange={e=>setFeaFile(e.target.files[0] || null)} />
+        <div className="numgrid" style={{marginTop:6}}>
+          <label>R mm<input type="number" value={feaRadius} onChange={e=>setFeaRadius(e.target.value)} /></label>
+          <label>遮拦<input type="number" step="0.01" value={feaObsc} onChange={e=>setFeaObsc(e.target.value)} /></label>
+        </div>
+        <button className="ghost" onClick={uploadFea} disabled={busy || !feaFile}>上传并拟合 66 项 Zernike</button>
+        {detail ? (
+          <div className="fw-note" style={{marginTop:12}}>
+            <b>{detail.case.id}</b><br/>
+            半径 {detail.case.aperture_radius_mm} mm · 目标 RMS {detail.case.target_rms_nm} nm<br/>
+            实际 map RMS {Number(detail.fit.rms_nm).toFixed(2)} nm<br/>
+            来源：{detail.case.source_page}<br/>
+            合成参考：{detail.case.synthetic ? "是" : "否"}
+          </div>
+        ) : null}
+        {meta && meta.warning ? <div className="fea-warn">{meta.warning}</div> : null}
+        {busy ? <div className="hint">加载工况...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        <div className="cards">
+          <div className="card"><div className="k">Z4 / Z8 / Z9</div><div className="v">{(targets.Z4 || 0).toFixed(2)} / {(targets.Z8 || 0).toFixed(2)} / {(targets.Z9 || 0).toFixed(2)}</div></div>
+          <div className="card"><div className="k">拟合残差 RMS</div><div className="v">{detail ? Number(detail.fit.residual_rms_nm).toExponential(1) : "—"}</div></div>
+          <div className="card"><div className="k">环境 S</div><div className="v">{sens ? `${sens.matrix.length}×${sens.matrix[0].length}` : "—"}</div></div>
+          <div className="card"><div className="k">S 条件数</div><div className="v">{sens ? Number(sens.condition).toFixed(2) : "—"}</div></div>
+        </div>
+        <div id="feaMap" className="fea-chart"></div>
+        <div id="feaZ" className="fea-chart"></div>
+        <div id="feaS" className="fea-chart"></div>
+        {sens ? (
+          <table className="fw-table">
+            <thead><tr><th>环境变量</th><th>物理含义</th><th>单位</th></tr></thead>
+            <tbody>
+              <tr><td>gravity_deg</td><td>俯仰角/重力方向</td><td>deg</td></tr>
+              <tr><td>thermal_K</td><td>环境温度变化 ΔT</td><td>K</td></tr>
+            </tbody>
+          </table>
+        ) : null}
+        {sens ? <div className="fw-note">环境灵敏度来自 M1 重力 0/90° 与热 ±20 K 工况的 Zernike 差分；不是 M2 5-DOF 的 Zemax 灵敏度。</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function ProductApp() {
+  const [ccd, setCcd] = useState(null);
+  const [pd, setPd] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [files, setFiles] = useState([]);
+  const [p, setP] = useState({c4:0.3, c8:0.1, c9:-0.05, noise:2, stars:20, defocus:"-2,-1,0,1,2"});
+
+  async function post(path, body) {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json();
+  }
+
+  async function runCcd() {
+    setBusy(true); setErr(""); setPd(null);
+    try {
+      const defocus = p.defocus.split(",").map(Number).filter(v => Number.isFinite(v));
+      setCcd(await post("/api/ccd/pipeline", {...p, defocus, seed:3}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  async function runPd() {
+    if (!ccd) return;
+    setBusy(true); setErr("");
+    try {
+      setPd(await post("/api/pd/invert", {psf:ccd.psf, defocus:ccd.defocus, truth:ccd.truth, maxeval:400, n_starts:2}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  function fileToB64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result || "");
+        resolve({name:file.name, data_b64:s.includes(",") ? s.split(",")[1] : s});
+      };
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function runFits() {
+    if (!files.length) return;
+    setBusy(true); setErr(""); setPd(null);
+    try {
+      const payload = await Promise.all(Array.from(files).map(fileToB64));
+      setCcd(await post("/api/ccd/upload", {files:payload, defocus:Array.from(files).map((_,i)=>i*1.0)}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+
+  useEffect(() => {
+    if (!pd) return;
+    const el = document.getElementById("pdChart");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("pdChart", [
+      {type:"bar", name:"truth", x:["Z4","Z8","Z9"], y:[pd.truth.Z4,pd.truth.Z8,pd.truth.Z9], marker:{color:"#2e5e8c"}},
+      {type:"bar", name:"PD", x:["Z4","Z8","Z9"], y:[pd.zernike.Z4,pd.zernike.Z8,pd.zernike.Z9], marker:{color:"#2a9d8f"}},
+    ], {barmode:"group", margin:{l:40,r:10,t:24,b:30}, paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"waves"}, legend:{orientation:"h"}}, {displayModeBar:false});
+  }, [pd]);
+
+  const set = (k,v) => setP({...p, [k]: v});
+  return (
+    <div className="fea-grid">
+      <div>
+        <div className="numgrid">
+          <label>Z4<input type="number" step="0.01" value={p.c4} onChange={e=>set("c4",Number(e.target.value))}/></label>
+          <label>Z8<input type="number" step="0.01" value={p.c8} onChange={e=>set("c8",Number(e.target.value))}/></label>
+          <label>Z9<input type="number" step="0.01" value={p.c9} onChange={e=>set("c9",Number(e.target.value))}/></label>
+        </div>
+        <div className="row"><span>读出噪声 e-</span><b>{p.noise}</b></div>
+        <input type="range" min="0.5" max="10" step="0.5" value={p.noise} onChange={e=>set("noise",Number(e.target.value))}/>
+        <div className="row"><span>星数</span><b>{p.stars}</b></div>
+        <input type="range" min="8" max="40" step="1" value={p.stars} onChange={e=>set("stars",Number(e.target.value))}/>
+        <label className="hint">离焦序列（waves）</label>
+        <input className="fea-select" value={p.defocus} onChange={e=>set("defocus",e.target.value)}/>
+        <button className="primary" onClick={runCcd} disabled={busy}>生成 CCD + 定标 + PSF</button>
+        <label className="hint" style={{display:"block",marginTop:10}}>或上传真实 FITS（SDSS/HST；单帧只做 PSF 提取）</label>
+        <input type="file" multiple accept=".fits,.fit,.fts" className="fea-select" onChange={e=>setFiles(e.target.files)} />
+        <button className="ghost" onClick={runFits} disabled={busy || !files.length}>读取真实 FITS → PSF</button>
+        <button className="secondary" onClick={runPd} disabled={busy || !ccd || ccd.psf.length < 2}>用这批 PSF 做 PD 反演</button>
+        <p className="fw-note">真实风格：相位 PSF + 背景/平场/暗电流/读出噪声 + 饱和/宇宙线。PSF 来自定标后的孤立星。</p>
+        {busy ? <div className="hint">计算中...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        {ccd ? (
+          <>
+            <div className="cards">
+              <div className="card"><div className="k">帧数 / 尺寸</div><div className="v">{ccd.metrics.n_frames} / {ccd.metrics.shape[1]}²</div></div>
+              <div className="card"><div className="k">读出噪声</div><div className="v">{ccd.metrics.read_noise || "—"}{ccd.metrics.read_noise ? " e-" : ""}</div></div>
+              <div className="card"><div className="k">PSF 峰值</div><div className="v">{Number(ccd.metrics.psf_peak || 1).toExponential(2)}</div></div>
+              <div className="card"><div className="k">{ccd.real ? "真实 FITS" : "定标星"}</div><div className="v">({ccd.star.x.toFixed(0)}, {ccd.star.y.toFixed(0)})</div></div>
+            </div>
+            {ccd.real && ccd.psf.length < 2 ? <div className="fea-warn">单张真实 FITS 只能做 PSF 提取，不能做相位差反演；PD 需要多帧不同离焦。</div> : null}
+            <div className="product-frames">
+              {ccd.frames.map((f,i) => <figure key={i}><img src={f.cal} alt={"cal "+i}/><figcaption>cal d={f.defocus}</figcaption></figure>)}
+            </div>
+            <div className="product-frames" style={{marginTop:8}}>
+              {ccd.psf_png.map((src,i) => <figure key={i}><img src={src} alt={"psf "+i}/><figcaption>PSF d={ccd.defocus[i]}</figcaption></figure>)}
+            </div>
+          </>
+        ) : <div className="hint">点击左侧生成，先看真实感 CCD 和 PSF cutout。</div>}
+        <h3 style={{fontSize:15,color:"#2e5e8c",margin:"18px 0 8px"}}>② 相位差反演（PD）</h3>
+        {pd ? (
+          <>
+            <div className="cards">
+              <div className="card"><div className="k">PD 评估</div><div className="v">{pd.nfev}</div></div>
+              <div className="card"><div className="k">cost</div><div className="v">{Number(pd.cost).toExponential(2)}</div></div>
+              <div className="card"><div className="k">Z4 误差</div><div className="v">{(pd.zernike.Z4 - pd.truth.Z4).toFixed(3)}</div></div>
+              <div className="card"><div className="k">Z8/Z9 误差</div><div className="v">{(pd.zernike.Z8 - pd.truth.Z8).toFixed(3)} / {(pd.zernike.Z9 - pd.truth.Z9).toFixed(3)}</div></div>
+            </div>
+            <div id="pdChart" className="fea-chart"></div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CustomApp() {
+  const [text, setText] = useState("4.040,0.083,-0.083,0.976,-0.976\n0,-4.633,0,0,0\n0,0,-4.633,0,0");
+  const [target, setTarget] = useState("0.23377,-0.09266,0.04633");
+  const [S, setS] = useState(null);
+  const [ctrl, setCtrl] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  function parseMatrix(t) {
+    const rows = t.trim().split(/\n+/).map(line => line.split(/[,\s]+/).filter(Boolean).map(Number));
+    if (!rows.length || rows.some(r => r.length !== rows[0].length || r.some(v => !Number.isFinite(v)))) throw new Error("矩阵行/列不齐或含非数字");
+    return rows;
+  }
+  function parseVec(t) {
+    return t.split(/[,\s]+/).filter(Boolean).map(Number);
+  }
+  async function post(path, body) {
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json();
+  }
+  async function analyze() {
+    setBusy(true); setErr("");
+    try {
+      const m = parseMatrix(text);
+      setS(await post("/api/sensitivity/custom", {matrix:m}));
+      setCtrl(null);
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+  async function solve() {
+    setBusy(true); setErr("");
+    try {
+      const m = parseMatrix(text);
+      setCtrl(await post("/api/control/custom", {matrix:m, target:parseVec(target), lam:1e-8, use_bounds:false}));
+    } catch(e) { setErr(String(e)); } finally { setBusy(false); }
+  }
+  useEffect(() => {
+    if (!S) return;
+    const el = document.getElementById("customSChart");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("customSChart", [{z:S.values, x:S.control_names, y:S.target_names, type:"heatmap", colorscale:"RdBu", zmid:0,
+      text:S.values.map(r=>r.map(v=>Number(v).toFixed(2))), texttemplate:"%{text}"}],
+      {margin:{l:48,r:10,t:24,b:34}, paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)", yaxis:{autorange:"reversed"}}, {displayModeBar:false});
+  }, [S]);
+  useEffect(() => {
+    if (!ctrl || !S) return;
+    const el = document.getElementById("customUChart");
+    if (!el || typeof Plotly === "undefined") return;
+    Plotly.react("customUChart", [{type:"bar", x:S.control_names, y:ctrl.u, marker:{color:"#2a9d8f"}, text:ctrl.u.map(v=>Number(v).toFixed(3)), textposition:"outside"}],
+      {margin:{l:42,r:10,t:24,b:34}, paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)", yaxis:{title:"u"}, xaxis:{tickangle:-25}}, {displayModeBar:false});
+  }, [ctrl, S]);
+
+  return (
+    <div className="fea-grid">
+      <div>
+        <label className="hint">S 矩阵（行=目标，列=控制）</label>
+        <textarea className="matrix-input" value={text} onChange={e=>setText(e.target.value)} />
+        <input type="file" accept=".csv,.txt" className="fea-select" onChange={async e => {
+          const f = e.target.files && e.target.files[0];
+          if (f) setText(await f.text());
+        }} />
+        <label className="hint" style={{display:"block",marginTop:8}}>target 向量</label>
+        <input className="fea-select" value={target} onChange={e=>setTarget(e.target.value)} />
+        <button className="primary" onClick={analyze} disabled={busy}>分析 S（rank/condition）</button>
+        <button className="secondary" onClick={solve} disabled={busy || !S}>求解控制量 u</button>
+        <p className="fw-note">支持任意 m×n；FEA/Zemax 只要输出同格式 CSV 即可接入。u 是最小范数/正则解，不唯一。</p>
+        {busy ? <div className="hint">计算中...</div> : null}
+        {err ? <div className="err">{err}</div> : null}
+      </div>
+      <div>
+        {S ? (
+          <div className="cards">
+            <div className="card"><div className="k">S 尺寸</div><div className="v">{S.shape[0]}×{S.shape[1]}</div></div>
+            <div className="card"><div className="k">rank</div><div className="v">{S.rank}</div></div>
+            <div className="card"><div className="k">condition</div><div className="v">{Number(S.condition).toFixed(3)}</div></div>
+            <div className="card"><div className="k">nullspace</div><div className="v">{S.nullspace}</div></div>
+          </div>
+        ) : null}
+        <div id="customSChart" className="fea-chart"></div>
+        <div id="customUChart" className="fea-chart"></div>
+        {ctrl ? <div className="fw-note">max |residual| = {Math.max(...ctrl.residual.map(v=>Math.abs(v))).toExponential(2)}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+ReactDOM.createRoot(document.getElementById("framework-root")).render(<FrameworkApp/>);
+ReactDOM.createRoot(document.getElementById("fea-root")).render(<FeaApp/>);
+ReactDOM.createRoot(document.getElementById("product-root")).render(<ProductApp/>);
+ReactDOM.createRoot(document.getElementById("custom-root")).render(<CustomApp/>);
+</script>
+<script>
+window.addEventListener("load", function () {
+  // Data-flow order: CCD -> PD -> S/control -> appendix.
+  var main = document.querySelector("main");
+  var product = document.querySelector("#product-root");
+  var framework = document.querySelector("#framework-root");
+  if (product && product.closest("section") && framework) {
+    document.body.insertBefore(product.closest("section"), framework.closest("section"));
+  }
+  if (main) document.body.appendChild(main);
+});
+</script>
+</body>
+</html>

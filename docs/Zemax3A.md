@@ -1,0 +1,145 @@
+# Zemax 3A：ZMX 解析与 ZOS-API 灵敏度
+
+> 代码：`products/zemax/zmx_parser.py`、`products/zemax/zos_bridge.py`、
+> `products/jobs/store.py`、`scripts/zemax_zos_worker.py`
+> 接口：旧 Web API 已归档（`archive/legacy-web/`）；桌面走 Qt ZMX 页签
+
+## 1. 当前状态
+
+已实现：
+
+- 读取 **UTF-16LE/ASCII** ZMX（带 BOM）；
+- 解析 `ENPD`、`WAVM`、`SURF/TYPE/CURV/CONI/DISZ/GLAS/DIAM/STOP`；
+- 返回面数、stop、口径、波长、面型；
+- 前端 ③A 可上传 `.ZMX` 查看结构；
+- **SQLite job queue**：提交/claim/complete/fail；
+- Windows worker + `--mock` 队列测试；
+- 外部 ZOS 批处理命令契约（`TEL_ZOS_BATCH_CMD`）。
+
+实测你给的 `2.5m主系统.ZMX`：
+
+```text
+ENPD = 2500 mm
+surfaces = 8（0..7）
+STOP = surface 2
+wavelengths = 24
+```
+
+**未实现**：用 ZMX 直接算 Zernike 灵敏度。ZMX 只是处方，不是光线追迹器；
+需要 OpticStudio ZOS-API 或自研光线追迹。当前不伪造 3A 数值。
+
+## 2. 真正的 3A 流程
+
+```text
+ZMX
+ -> OpticStudio ZOS-API（Windows）
+ -> 设置 M2 surface 的 decenter_x/y, tilt_x/y, focus
+ -> 每个控制量 ±δ
+ -> Zernike/波前分析
+ -> Z = (Zplus - Zminus)/(2δ)
+ -> S (3x5)
+ -> Qt ③C / CSV
+```
+
+### 2.1 控制量
+
+| 控制量 | Zemax 操作 | 单位 |
+|---|---|---|
+| `m2_focus` | 改变 M2 厚度/像面 | mm |
+| `m2_decenter_x/y` | M2 surface decenter | mm |
+| `m2_tilt_x/y` | M2 surface tilt | mrad |
+
+### 2.2 输出 CSV
+
+```csv
+target,m2_focus,m2_decenter_x,m2_decenter_y,m2_tilt_x,m2_tilt_y
+Z4,...
+Z8,...
+Z9,...
+```
+
+这个 CSV 直接粘贴/上传到 ⑦“自定义 S”，即可求 rank/condition 和控制量。
+
+## 3. Job queue（本地 SQLite）
+
+旧 Web 的 HTTP 作业路由（`POST /api/zemax/jobs` 等）已随 Web 删除。当前队列为
+`products/jobs/store.py` 的本地 SQLite（`results/jobs.sqlite3`，可删、自动重建）：
+
+```text
+submit(kind="zemax", payload) -> job_id
+claim(kind="zemax", worker)   -> 作业（状态 running）
+complete(job_id, result) / fail(job_id, error)
+```
+
+Windows worker 与桌面/批处理进程共享同一 DB 文件，不经过 HTTP/浏览器。
+
+## 4. Windows 外部批处理契约
+
+`products/zemax/zos_bridge.py` 不内置专有 API，而是调用：
+
+```text
+TEL_ZOS_BATCH_CMD <model.zmx> <perturb.yaml> <out.csv>
+```
+
+在 Windows worker 上设置：
+
+```bat
+set TEL_ZOS_BATCH_CMD=python C:\zos\run_zos_batch.py
+python scripts\zemax_zos_worker.py
+```
+
+`run_zos_batch.py` 用 ZOS-API 打开 ZMX、按 `perturb.yaml` 施加 M2 5-DOF、
+导出 3×5 CSV。Linux/桌面侧只负责队列/校验/UI，不接触 OpticStudio license。
+
+### 4.1 队列测试（Linux，不需要 Zemax）
+
+```bash
+python3 scripts/zemax_zos_worker.py --mock
+```
+
+返回明确标 `mock: true` 的 3×5 占位 S，只用于验证本地队列，不能当 Zemax 结果。
+
+## 5. 边界
+
+- 解析 ≠ 追迹：当前只给结构摘要，不给 S；
+- ZMX 坐标断点/非序列/自由曲面可能超出解析器；
+- 真实 S 必须由 OpticStudio 或经过验证的光线追迹给出；
+- `--mock` 只能做队列测试，不能进报告/论文。
+
+
+## 6. rayoptics OPD 3×5 S（已生成，非 Zemax）
+
+`products/zemax/rayoptics_sensitivity.py` 已能从 ZMX 生成真实光线追迹的
+on-axis OPD Zernike，并有限差分 M2：
+
+- surface 4 = M2；
+- controls：`decenter_x/y [mm]`、`tilt_x/y [mrad]`、`focus [mm]`；
+- 500 nm，8×8 pupil grid；
+- 输出：`data/zemax/sensitivity.csv/json`。
+
+实测 S（waves/(mm or mrad)）：
+
+```text
+m2_decenter_x: Z8 = +1.956
+m2_decenter_y: Z9 = +1.954
+m2_tilt_x:     Z9 = -0.501
+m2_tilt_y:     Z8 = +0.500
+m2_focus:      Z4 = -0.987
+```
+
+数据文件：
+
+```text
+data/zemax/sensitivity.csv / sensitivity.json
+```
+
+**注意**：这是 rayoptics 的 OPD/有限差分，不是 OpticStudio 的 Zernike 分析；
+baseline OPD 仍很大（Z4≈30.6 waves），说明模型/参考球/采样需继续校准。
+不能把它标成“Zemax 真实 S”。
+
+## 7. 当前结论
+
+- ZMX 能读、能追迹、能生成 S；
+- S 的符号/量级可用于算法链验证；
+- 真实 Zemax 对照仍需学生版/学校 license；
+- `data/zemax/sensitivity*.json` 可直接给 Qt ③C 做控制（`source="auto"` 优先真实文件）。

@@ -7,6 +7,12 @@
 
 #include "telescope/zernike.hpp"
 
+// ---------------------------------------------------------------------------
+// GPU forward model
+//   pupil -> Zernike phase -> cuFFT -> |.|^2 -> binning -> star overlay
+// All buffers are device-side; only the final 5 frames are copied back.
+// ---------------------------------------------------------------------------
+
 namespace telescope {
 namespace {
 

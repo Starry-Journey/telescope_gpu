@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(telescope_gpu LANGUAGES CXX)
+project(telescope_gpu VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,6 +11,10 @@ set(CMAKE_CUDA_EXTENSIONS OFF)
 option(TEL_BUILD_CUDA "Build CUDA targets (forward model, solver, GPU tests)" ON)
 option(TEL_BUILD_TESTS "Build unit tests" ON)
 option(TEL_BUILD_NUMERICS "Build the Eigen/GTest/Benchmark/pybind11 numerical library" OFF)
+option(TEL_BUILD_FRAMEWORK "Build the instrument inversion/control framework" OFF)
+
+# Register tests before subdirectories add_test() calls.
+enable_testing()
 
 # RTX 3050 = sm_86。用户显式 -DCMAKE_CUDA_ARCHITECTURES=... 时不再覆盖；
 # 不再把 CMake 自动推断的 52 强行改掉，避免在多卡/新卡机器上编译出
@@ -44,6 +48,9 @@ endif()
 # ------------------------------------------------------------
 # 1b. 数值小库（可选，独立依赖 Eigen/GTest/Benchmark/pybind11）
 # ------------------------------------------------------------
+if(TEL_BUILD_FRAMEWORK AND NOT TEL_BUILD_NUMERICS)
+    set(TEL_BUILD_NUMERICS ON CACHE BOOL "Framework needs numerical backend" FORCE)
+endif()
 if(TEL_BUILD_NUMERICS)
     add_subdirectory(numerics)
 endif()
@@ -126,6 +133,10 @@ if(TEL_BUILD_CUDA)
     add_dependencies(inverse_solve copy_configs)
 endif()
 
+if(TEL_BUILD_FRAMEWORK)
+    add_subdirectory(framework)
+endif()
+
 # ------------------------------------------------------------
 # 3. 测试
 # ------------------------------------------------------------
@@ -169,4 +180,17 @@ if(TEL_BUILD_CUDA)
     message(STATUS "telescope_gpu: CUDA arch = ${CMAKE_CUDA_ARCHITECTURES}")
 else()
     message(STATUS "telescope_gpu: CPU-only build")
+endif()
+
+# ------------------------------------------------------------
+# 4. 安装规则（make install；版本号来自 project(... VERSION 0.2.0)）
+# ------------------------------------------------------------
+install(TARGETS telescope_cpu
+        ARCHIVE DESTINATION lib)
+install(DIRECTORY include/telescope DESTINATION include)
+if(TEL_BUILD_CUDA)
+    install(TARGETS telescope_cuda
+            ARCHIVE DESTINATION lib)
+    install(TARGETS forward_generate inverse_solve
+            RUNTIME DESTINATION bin)
 endif()

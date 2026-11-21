@@ -1,0 +1,10 @@
+# Zemax kinematic / optomechanical sensitivity spec.
+# The ZMX path is a user-provided file; never commit proprietary models.
+model: 2.5m主系统.ZMX
+targets: [Z4, Z8, Z9]
+controls:
+  - {id: m2_decenter_x, surface: 3, dof: decenter_x, step: 0.01, unit: mm}
+  - {id: m2_decenter_y, surface: 3, dof: decenter_y, step: 0.01, unit: mm}
+  - {id: m2_tilt_x,     surface: 3, dof: tilt_x,     step: 0.01, unit: mrad}
+  - {id: m2_tilt_y,     surface: 3, dof: tilt_y,     step: 0.01, unit: mrad}
+  - {id: m2_focus,      surface: 3, dof: focus,      step: 0.01, unit: mm}

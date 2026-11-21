@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <memory>
 #include <random>
 #include <stdexcept>
 #include <utility>
@@ -13,6 +14,15 @@
 #include "telescope/forward_model.cuh"
 #include "telescope/fits_io.hpp"
 #include "telescope/zernike.hpp"
+
+// ---------------------------------------------------------------------------
+// Phase-diversity inversion pipeline
+//   1) preprocess_frames: per-frame bias subtraction + energy normalization
+//   2) evaluate(): image-domain SSE against the 5-frame model
+//   3) solve(): 40 random starts + coordinate descent, top-3 BOBYQA
+// The model/data normalization and the pseudo-solution diagnostic are
+// deliberate: they were added after observing a sign/bias failure mode.
+// ---------------------------------------------------------------------------
 
 namespace telescope {
 
@@ -26,9 +36,13 @@ namespace {
 
 constexpr int kBlock = 256;
 
+// 每帧 SSE 归约：输入仍是 fp32 图像，但减法/平方/累加全部提升为 double。
+// fp32 归约的舍入噪声 ε≈1.2e-7（相对量级）会直接进入代价函数，见
+// solve() 中 set_ftol_rel 的注释——阈值低于该噪声时 BOBYQA 永远看不到
+// 收敛信号。
 __global__ void cost_reduce_kernel(const float* data,
                                    const float* model,
-                                   float* costs,
+                                   double* costs,
                                    int total,
                                    int n_frames) {
     const int frame = blockIdx.x;
@@ -36,13 +50,13 @@ __global__ void cost_reduce_kernel(const float* data,
 
     const float* a = data + static_cast<std::size_t>(frame) * total;
     const float* b = model + static_cast<std::size_t>(frame) * total;
-    float s = 0.0f;
+    double s = 0.0;
     for (int i = threadIdx.x; i < total; i += blockDim.x) {
-        const float d = a[i] - b[i];
+        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
         s += d * d;
     }
 
-    __shared__ float smem[kBlock];
+    __shared__ double smem[kBlock];
     smem[threadIdx.x] = s;
     __syncthreads();
     for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
@@ -100,10 +114,10 @@ public:
 
     ForwardModelGPU model;
     std::vector<float> host_defocus;
-    std::vector<float> host_costs;  // 复用，避免每次 evaluate 都分配
+    std::vector<double> host_costs;  // 复用，避免每次 evaluate 都分配
     DeviceBuffer<float> d_data;
     DeviceBuffer<float> d_model;
-    DeviceBuffer<float> d_costs;
+    DeviceBuffer<double> d_costs;
     long long eval_count = 0;
 };
 
@@ -142,14 +156,12 @@ PhaseDiversitySolver::PhaseDiversitySolver(const OpticalParams& params,
     for (float v : data_) {
         if (!std::isfinite(v)) throw std::invalid_argument("data contains NaN/Inf");
     }
-    impl_ = new Impl(params_, stars_, data_, defocus_, n_frames_);
+    impl_ = std::make_unique<Impl>(params_, stars_, data_, defocus_, n_frames_);
 }
 
-PhaseDiversitySolver::~PhaseDiversitySolver() {
-    delete impl_;
-}
+PhaseDiversitySolver::~PhaseDiversitySolver() = default;
 
-float PhaseDiversitySolver::evaluate(const ZernikeCoeffs& coeffs) {
+double PhaseDiversitySolver::evaluate(const ZernikeCoeffs& coeffs) {
     ++impl_->eval_count;
     impl_->model.generate_frames(coeffs, impl_->host_defocus.data(), n_frames_,
                                  impl_->d_model.get());
@@ -161,10 +173,11 @@ float PhaseDiversitySolver::evaluate(const ZernikeCoeffs& coeffs) {
     TEL_CUDA_CHECK(cudaGetLastError());
 
     TEL_CUDA_CHECK(cudaMemcpy(impl_->host_costs.data(), impl_->d_costs.get(),
-                              impl_->host_costs.size() * sizeof(float),
+                              impl_->host_costs.size() * sizeof(double),
                               cudaMemcpyDeviceToHost));
-    float total = 0.0f;
-    for (float c : impl_->host_costs) total += c;
+    // host 端也用 double 累加：帧间求和的 fp32 舍入同样是代价噪声的一部分。
+    double total = 0.0;
+    for (double c : impl_->host_costs) total += c;
     return total;
 }
 
@@ -184,7 +197,7 @@ double nlopt_objective(const std::vector<double>& x,
         coeffs[(*ctx->active)[a]] = static_cast<float>(x[a]);
     }
     try {
-        return static_cast<double>(ctx->solver->evaluate(coeffs));
+        return ctx->solver->evaluate(coeffs);
     } catch (const std::exception&) {
         return 1.0e30;  // 让优化器远离不可行区域，而不是把异常抛进 C 回调。
     }
@@ -212,7 +225,7 @@ SolveResult PhaseDiversitySolver::solve() {
 
     struct Candidate {
         ZernikeCoeffs coeffs;
-        float cost;
+        double cost;
     };
     std::vector<Candidate> candidates;
     candidates.reserve(static_cast<std::size_t>(options_.n_starts));
@@ -228,7 +241,7 @@ SolveResult PhaseDiversitySolver::solve() {
                         uniform(rng) * (options_.bounds.upper[k] - options_.bounds.lower[k]);
         }
 
-        float best = evaluate(coeffs);
+        double best = evaluate(coeffs);
         float step = 0.3f;
         for (int iter = 0; iter < 200 && step >= 1e-4f; ++iter) {
             bool improved = false;
@@ -239,7 +252,7 @@ SolveResult PhaseDiversitySolver::solve() {
                         k, coeffs[k] + static_cast<float>(dir) * step);
                     if (trial[k] == coeffs[k]) continue;
 
-                    const float cost = evaluate(trial);
+                    const double cost = evaluate(trial);
                     if (cost < best) {
                         best = cost;
                         coeffs = trial;
@@ -285,7 +298,10 @@ SolveResult PhaseDiversitySolver::solve() {
             opt.set_upper_bounds(upper);
             opt.set_min_objective(nlopt_objective, &ctx);
             opt.set_maxeval(options_.maxeval);
-            opt.set_ftol_rel(1e-10);
+            // fp32 代价噪声 ε≈1.2e-7（模型生成/数据都是 fp32）。ftol 低于
+            // 噪声时优化器永远观察不到“足够小的改进”，每次精修都会烧满
+            // maxeval。阈值必须保持在噪声之上。
+            opt.set_ftol_rel(1e-7);
             opt.set_xtol_rel(1e-6);
 
             double minf = 0.0;
@@ -303,7 +319,7 @@ SolveResult PhaseDiversitySolver::solve() {
             }
 
             if (minf < best_global.cost) {
-                best_global = {coeffs, static_cast<float>(minf)};
+                best_global = {coeffs, minf};
             }
         } catch (const std::exception& e) {
             // 某一起点精修失败不应让整个反演失败：保留粗搜候选继续。
@@ -320,9 +336,9 @@ SolveResult PhaseDiversitySolver::solve() {
     result.wavefront_rms = wavefront_rms(result.coeffs, truth_, grid);
     // 拟合 3 个参数本身就能把噪声代价压低约 3/像素数（远小于 0.1%），
     // 因此用 1% 的相对阈值，避免把正常的噪声过拟合误报为伪解。
-    constexpr float kPseudoCostTolerance = 0.01f;
+    constexpr double kPseudoCostTolerance = 0.01;
     result.pseudo_solution =
-        result.cost < result.cost_true * (1.0f - kPseudoCostTolerance);
+        result.cost < result.cost_true * (1.0 - kPseudoCostTolerance);
     return result;
 }
 
