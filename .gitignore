@@ -43,6 +43,7 @@ nano.save
 
 # ---- docs figures are part of the deliverable ----
 !docs/figs/*.png
+!packaging/windows/*.png
 
 # ---- Python ----
 __pycache__/
