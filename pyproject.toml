@@ -1,0 +1,26 @@
+[project]
+name = "telescope-engineering"
+version = "0.2.0"
+description = "基于相位差法与高性能计算的大口径望远镜重力变形标定研究——数据链路工程版（GPU/CUDA 反演引擎 + CNN 加速，HPC · AI4S）"
+readme = "README.md"
+# 说明：本仓库存在三个 Python 基线（CI ubuntu-22.04 自带 3.10、Docker 3.8、
+# 打包桌面 py -3.13），暂不设 requires-python 硬约束；已验证版本组合见
+# constraints.txt，升级依赖后请在三个环境各跑一遍测试。
+dependencies = [
+    "PySide6==6.12.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "astropy>=5",
+    "matplotlib>=3.7",
+    "nlopt>=2.7",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6"]
+ml = ["torch>=2.0"]
+
+[tool.ruff]
+extend-exclude = ["archive", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

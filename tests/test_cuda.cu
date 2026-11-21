@@ -176,10 +176,10 @@ TEST(solver_cost_is_minimal_at_truth) {
     options.verbose = false;
 
     PhaseDiversitySolver solver(params, stars, data, defocus, truth, options);
-    const float cost_true = solver.evaluate(truth);
-    const float cost_zero = solver.evaluate(ZernikeCoeffs{});
+    const double cost_true = solver.evaluate(truth);
+    const double cost_zero = solver.evaluate(ZernikeCoeffs{});
 
-    CHECK(cost_true < 1e-9f);
+    CHECK(cost_true < 1e-9);
     CHECK(cost_zero > cost_true);
 }
 

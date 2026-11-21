@@ -50,12 +50,20 @@ SensitivityMatrix FiniteDifferenceSensitivity::build(
         const double hi = std::min(axis.upper, space.spec(axis.parameter_index).upper);
         const double lo = std::max(axis.lower, space.spec(axis.parameter_index).lower);
         double actual = 0.0;
-        if (v + step <= hi) {
+        if (v + step <= hi && v - step >= lo) {
             plus.values[static_cast<std::size_t>(axis.parameter_index)] = v + step;
             minus.values[static_cast<std::size_t>(axis.parameter_index)] = v - step;
             actual = 2.0 * step;
+        } else if (v + step <= hi) {
+            // one-sided forward difference near lower bound (symmetric with the
+            // upper-bound branch below): never perturb below lo
+            minus.values[static_cast<std::size_t>(axis.parameter_index)] = v;
+            plus.values[static_cast<std::size_t>(axis.parameter_index)] =
+                std::min(hi, v + step);
+            actual = plus.values[static_cast<std::size_t>(axis.parameter_index)] -
+                     minus.values[static_cast<std::size_t>(axis.parameter_index)];
         } else {
-            // one-sided forward difference near upper bound
+            // one-sided backward difference near upper bound
             plus.values[static_cast<std::size_t>(axis.parameter_index)] = v;
             minus.values[static_cast<std::size_t>(axis.parameter_index)] = std::max(lo, v - step);
             actual = v - minus.values[static_cast<std::size_t>(axis.parameter_index)];

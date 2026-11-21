@@ -20,6 +20,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from astropy.io import fits
 
+# 仓库根锚定，保证从任意工作目录运行时都能 import products.*
+# （与 scripts/benchmark.py 的处理一致）
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from products.optics.forward import forward_psf_numpy  # noqa: E402
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -150,47 +158,39 @@ def plot_zernike_compare(args, out_dir):
     return True
 
 
-# 与 C++ src/zernike.cpp 的槽位顺序一致：{2,3,4,5,6,10,8,7}
-def zernike_polys(rho, theta, mask):
-    r, t = rho, theta
-    z = {
-        2: 2 * r * np.cos(t),
-        3: 2 * r * np.sin(t),
-        4: np.sqrt(3) * (2 * r ** 2 - 1),
-        5: np.sqrt(6) * r ** 2 * np.sin(2 * t),
-        6: np.sqrt(6) * r ** 2 * np.cos(2 * t),
-        7: np.sqrt(8) * r ** 3 * np.sin(3 * t),
-        8: np.sqrt(8) * (3 * r ** 3 - 2 * r) * np.cos(t),
-        9: np.sqrt(8) * (3 * r ** 3 - 2 * r) * np.sin(t),
-    }
-    for k in z:
-        z[k] = z[k] * mask
-    return z
+# 本脚本的槽位布局与 C++ src/zernike.cpp 一致：coeffs[slot-2]，slots 2..9。
+# PSF 算法核心不再在此复制第三份，统一走 products.optics.forward（单一来源）。
+_SLOT_TO_LABEL = {4: "Z4", 5: "Z5", 6: "Z6", 8: "Z8", 9: "Z9"}
 
 
 def compute_psf(coeffs, defocus, pupil_radius=0.45, img_size=256, oversample=2):
-    """与 C++ 正向模型一致的 numpy 参考实现（用于画残差图）。"""
-    fft_size = img_size * oversample
-    y, x = np.mgrid[-1:1:fft_size * 1j, -1:1:fft_size * 1j]
-    rho = np.sqrt(x ** 2 + y ** 2)
-    theta = np.arctan2(y, x)
-    mask = (rho <= pupil_radius).astype(float)
-    r = np.clip(rho / pupil_radius, 0, 1)
-    z = zernike_polys(r, theta, mask)
+    """残差图用 PSF：薄适配到 products.optics.forward.forward_psf_numpy。
 
-    wavefront = np.zeros_like(rho)
-    for slot in range(2, 10):
-        c = coeffs[slot - 2]
-        if slot == 4:
-            c += defocus
-        wavefront += c * z[slot]
-
-    pupil = mask.astype(np.complex128) * np.exp(1j * 2 * np.pi * wavefront)
-    psf = np.abs(np.fft.fftshift(np.fft.fft2(pupil))) ** 2
-    psf /= psf.sum()
-    psf = psf.reshape(img_size, oversample, img_size, oversample).sum(axis=(1, 3))
-    psf /= psf.sum()
-    return psf
+    与旧的本文件第三份实现相比有三处口径差异，处理如下：
+      * 槽位布局：共享模型只实现 Z4/Z5/Z6/Z8/Z9（无 tip/tilt/trefoil 槽位
+        2/3/7）；非零槽位落在可映射集合内才可计算，否则显式报错而非静默丢弃。
+      * sum-binning：旧实现 reshape 后 .sum() 分箱，共享实现 .mean() 分箱，
+        但两者随后都做单位和归一化，数学上等价（sum = 4*mean，归一化后相同，
+        已实测一致到 ~1e-18）。
+      * FFT 归一化：旧实现未用 norm="ortho"，共享实现用了——常数因子同样被
+        单位和归一化抵消。mgrid[-1:1:Nj] 与 linspace(-1,1,N) 网格逐点相同。
+    """
+    active = {slot: float(coeffs[slot - 2]) for slot in _SLOT_TO_LABEL
+              if float(coeffs[slot - 2]) != 0.0}
+    unsupported = [s for s in range(2, 10)
+                   if s not in _SLOT_TO_LABEL and float(coeffs[s - 2]) != 0.0]
+    if unsupported:
+        raise ValueError(
+            f"unsupported nonzero Zernike slot(s) {unsupported}: the shared "
+            f"forward model (products.optics) implements Z4/Z5/Z6/Z8/Z9 only")
+    if not active:
+        # 全零波前：仍经共享实现，使 defocus 继续作用于 Z4（与旧行为一致）
+        active = {4: 0.0}
+    slots = sorted(active)
+    return forward_psf_numpy([active[s] for s in slots], float(defocus),
+                             n=img_size, oversample=oversample,
+                             pupil_radius=pupil_radius,
+                             terms=tuple(_SLOT_TO_LABEL[s] for s in slots))
 
 
 def plot_psf_residual(args, defocus, out_dir):

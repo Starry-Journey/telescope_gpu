@@ -47,8 +47,11 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-#: Project reference wavelength used to convert surface nm <-> waves.
-WAVELENGTH_NM = 632.8
+from products.instrument import DEFAULT_WAVELENGTH_NM
+
+#: Project reference wavelength used to convert surface nm <-> waves
+#: (single source: products.instrument.DEFAULT_WAVELENGTH_NM).
+WAVELENGTH_NM = DEFAULT_WAVELENGTH_NM
 
 #: Default relative observability threshold (5% of the global max |S|).
 DEFAULT_REL_THRESHOLD = 0.05
@@ -884,16 +887,10 @@ def astigmatism_plan(fea_summary: Mapping, dofs: Any = None) -> dict:
             "correction_axis_deg": astig["correction_axis_deg"],
             "case": astig.get("case"),
         },
-        "source_case": astig.get("case"),
-        "mechanism_dofs": names,
         "dofs": names,
         "dof_details": dof_details,
         "can_correct": can_correct,
         "cannot_correct": cannot_correct,
-        "dofs_can_correct": can_correct,
-        "dofs_cannot_correct": cannot_correct,
-        "observable_dofs": can_correct,
-        "blind_dofs": cannot_correct,
         "drop_astigmatism_row": drop_row,
         "recommended_dropped_rows": (["Z5", "Z6"] if drop_row else []),
         "compensation_matrix_note": (

@@ -32,7 +32,8 @@
 - numpy；复用 `products.acquisition`、`products.preprocess`、
   `products.pd.service`、`products.sensitivity.measured`、
   `products.sensitivity.observability`；
-- 不依赖 GUI/Qt/网络；不 import `products.control` 的 GUI 服务（补偿只用 numpy 有界最小二乘）。
+- 不依赖 GUI/Qt/网络；不 import `products.control` 的 GUI 服务（补偿用
+  `products.lsq.bounded_least_squares` / scipy `lsq_linear` 解有界最小二乘）。
 
 ## 标签与验证状态
 

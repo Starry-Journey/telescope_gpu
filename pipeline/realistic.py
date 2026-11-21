@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -30,6 +31,8 @@ from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
 from .simulate import distort_pixels, make_wcs, undistort_pixels
+
+log = logging.getLogger("pipeline")
 
 
 @dataclass
@@ -180,7 +183,12 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
     # stars
     stars = []
     margin = 25
-    while len(stars) < cfg.n_stars and len(stars) < 5000:
+    attempts = 0
+    # rejection sampling needs an attempt cap, otherwise a tiny/crowded frame
+    # can spin here forever (same guard as simulate.simulate_dataset)
+    max_attempts = max(cfg.n_stars * 40, 10000)
+    while len(stars) < cfg.n_stars and attempts < max_attempts:
+        attempts += 1
         xd = rng.uniform(margin, cfg.width - margin)
         yd = rng.uniform(margin, cfg.height - margin)
         if any((xd - s["x_det"]) ** 2 + (yd - s["y_det"]) ** 2 < 10 ** 2 for s in stars):
@@ -194,6 +202,11 @@ def simulate_realistic(data_dir: str, cfg: RealisticConfig) -> dict:
                       "dec": float(sky.dec.deg), "x_ideal": float(xi[0]),
                       "y_ideal": float(yi[0]), "x_det": float(xd),
                       "y_det": float(yd), "flux": float(flux)})
+
+    if len(stars) < cfg.n_stars:
+        log.warning("realistic sim: attempt limit (%d) reached, only placed %d/%d stars "
+                    "(frame too small or spacing too tight)",
+                    max_attempts, len(stars), cfg.n_stars)
 
     if cfg.cal_star is not None:
         cx, cy, cflux = cfg.cal_star

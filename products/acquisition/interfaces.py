@@ -30,8 +30,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
-#: 本管线内部的统一波长约定（与 products.optics / observability 一致）。
-WAVELENGTH_NM = 632.8
+from products.instrument import DEFAULT_WAVELENGTH_NM
+
+#: 本管线内部的统一波长约定（与 products.optics / observability 一致；
+#: single source: products.instrument.DEFAULT_WAVELENGTH_NM）。
+WAVELENGTH_NM = DEFAULT_WAVELENGTH_NM
 
 #: 所有接口实现都应带上的 provenance 字段（manifest 直接透传）。
 UNIT_SYSTEM = {

@@ -19,6 +19,8 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
+from products.lsq import bounded_least_squares
+
 ROOT = Path(__file__).resolve().parents[2]
 # Real ZOS-API output, written by scripts/zos_sensitivity.py. Never faked:
 # when the file is absent we fall back to the documented proxy and say so.
@@ -162,7 +164,15 @@ def control(target: Sequence[float], lam: float = 1e-8,
             use_bounds: bool = True, lower: Optional[Sequence[float]] = None,
             upper: Optional[Sequence[float]] = None,
             source: str = "auto") -> dict:
-    """Weighted least squares + Tikhonov, on the real or proxy S."""
+    """Weighted least squares + Tikhonov, on the real or proxy S.
+
+    With ``use_bounds=True`` the box constraints ``lower <= u <= upper`` are
+    enforced *inside* the solve via :func:`products.lsq.bounded_least_squares`
+    (scipy lsq_linear) -- no longer by clipping an unconstrained lstsq result,
+    which was not the bounded optimum.  ``use_bounds=False`` keeps the plain
+    (unbounded) lstsq + Tikhonov semantics.  ``active_constraints`` counts the
+    components of ``u`` sitting on a bound in the returned solution.
+    """
     z = np.asarray(target, dtype=float).reshape(-1)
     if z.size != 3:
         raise ValueError("target must have 3 values (Z4/Z8/Z9)")
@@ -174,17 +184,20 @@ def control(target: Sequence[float], lam: float = 1e-8,
     if lo.size != 5 or hi.size != 5:
         raise ValueError("bounds must have 5 values")
 
-    if lam > 0:
-        Aaug = np.vstack([S, math.sqrt(lam) * np.eye(5)])
-        baug = np.concatenate([z, np.zeros(5)])
-    else:
-        Aaug, baug = S, z
-    u, *_ = np.linalg.lstsq(Aaug, baug, rcond=None)
-    active = 0
     if use_bounds:
-        clipped = np.clip(u, lo, hi)
-        active = int(np.sum(clipped != u))
-        u = clipped
+        # 真正的有界最小二乘（scipy lsq_linear，见 products.lsq），
+        # 不再是 lstsq 后 clip；拟合约定 S u ≈ z（residual = S u - z）。
+        u, bls_info = bounded_least_squares(S, z, lo, hi, lam=lam)
+        active = int(bls_info["n_active"])
+    else:
+        # 无界 Tikhonov 最小二乘：保持原 lstsq 语义（本就不是有界问题）。
+        if lam > 0:
+            Aaug = np.vstack([S, math.sqrt(lam) * np.eye(5)])
+            baug = np.concatenate([z, np.zeros(5)])
+        else:
+            Aaug, baug = S, z
+        u, *_ = np.linalg.lstsq(Aaug, baug, rcond=None)
+        active = 0
 
     pred = S @ u
     residual = pred - z

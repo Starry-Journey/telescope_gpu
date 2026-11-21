@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from products.instrument import DEFAULT_WAVELENGTH_NM
+
 from .observability import analyze_control_space, astigmatism_plan
 from .zernike import PROJECT_LABEL, TERMS, fit_surface
 from scipy.interpolate import griddata
@@ -18,8 +20,10 @@ from scipy.interpolate import griddata
 ROOT = Path(__file__).resolve().parents[2]
 CASES = ROOT / "data" / "fea_cases"
 
-#: Project reference wavelength used by the S matrix (waves = nm / 632.8).
-WAVELENGTH_NM = 632.8
+#: Project reference wavelength used by the S matrix
+#: (waves = nm / WAVELENGTH_NM; single source:
+#: products.instrument.DEFAULT_WAVELENGTH_NM).
+WAVELENGTH_NM = DEFAULT_WAVELENGTH_NM
 
 #: Engineering Zernike set used by the control-space / observability layer.
 ENGINEERING_TARGETS = ["Z4", "Z5", "Z6", "Z8", "Z9", "Z11"]

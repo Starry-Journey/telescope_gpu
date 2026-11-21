@@ -1,6 +1,7 @@
 #pragma once
 
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -54,9 +55,11 @@ struct SolveOptions {
 
 struct SolveResult {
     ZernikeCoeffs coeffs{};
-    float cost = std::numeric_limits<float>::infinity();
-    float cost_true = std::numeric_limits<float>::infinity();
-    float cost_zero = std::numeric_limits<float>::infinity();
+    // 代价以 double 报告：GPU 归约已改为 double 累加（fp32 归约的舍入噪声
+    // ε≈1.2e-7 会淹没任何小于它的 ftol_rel 阈值）。
+    double cost = std::numeric_limits<double>::infinity();
+    double cost_true = std::numeric_limits<double>::infinity();
+    double cost_zero = std::numeric_limits<double>::infinity();
     float wavefront_rms = 0.0f;
     bool ok = false;
     // 若 final cost 比 cost(true) 低超过 1%，说明正向模型与反演变量集合
@@ -89,7 +92,9 @@ public:
 
     // 代价函数：sum_frames sum_pixels (data - model)^2。
     // model 在 GPU 上生成并按帧归一化，不产生逐帧 D2H。
-    float evaluate(const ZernikeCoeffs& coeffs);
+    // 返回 double：与 double 归约的内核/host 累加一致，避免在接口处
+    // 再引入一次 fp32 舍入。
+    double evaluate(const ZernikeCoeffs& coeffs);
 
     SolveResult solve();
 
@@ -104,7 +109,8 @@ private:
     int img_total_ = 0;
 
     class Impl;
-    Impl* impl_ = nullptr;
+    // 析构在 .cu 中出线定义（Impl 在那里才完整），unique_ptr 成员因此安全。
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace telescope

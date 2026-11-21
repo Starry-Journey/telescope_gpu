@@ -32,7 +32,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-DEFAULT_DEFOCUS = (-2.0, -1.0, 0.0, 1.0, 2.0)
+from products.instrument import DEFAULT_DEFOCUS
+
 DEFAULT_TERMS = ("Z4", "Z8", "Z9")
 
 

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 
 #include "instrument/control.hpp"
 #include "instrument/fits_reader.hpp"
@@ -51,6 +52,31 @@ ControlSpace make_controls(const ParameterSpace& sp) {
     }
     return cs;
 }
+/// Linear model that records every parameter value it is asked to evaluate,
+/// so tests can assert the sensitivity builder never perturbs out of bounds.
+class ProbingLinearForward : public ForwardModel {
+public:
+    explicit ProbingLinearForward(std::vector<std::vector<double>> A)
+        : A_(std::move(A)) {}
+    std::string name() const override { return "probing_linear"; }
+    Observable evaluate(const ParameterBlock& params,
+                        const Context&) const override {
+        for (double v : params.values) probed.push_back(v);
+        Observable obs;
+        obs.kind = "vector";
+        obs.names = {"Z4", "Z8", "Z9"};
+        obs.values.assign(A_.size(), 0.0);
+        for (std::size_t r = 0; r < A_.size(); ++r) {
+            for (std::size_t c = 0; c < A_[r].size() && c < params.size(); ++c) {
+                obs.values[r] += A_[r][c] * params[c];
+            }
+        }
+        return obs;
+    }
+    mutable std::vector<double> probed;
+private:
+    std::vector<std::vector<double>> A_;
+};
 }  // namespace
 
 int main() {
@@ -82,6 +108,27 @@ int main() {
         }
     }
 
+    // 2b. perturbation points stay inside [lower, upper] when the base point
+    // sits on the lower bound (one-sided difference, symmetric with the
+    // existing upper-bound handling)
+    {
+        ParameterBlock base_lo = sp.encode({-0.5, 0.0, 0.0, 0.0, 0.0});
+        ProbingLinearForward probe(A);
+        auto Slo = fd.build(probe, sp, make_controls(sp), IdentityExtractor(),
+                            base_lo, {});
+        require(Slo.valid() && Slo.rows() == 3 && Slo.cols() == 5, "probe S shape");
+        require(!probe.probed.empty(), "probe recorded evaluations");
+        for (double v : probe.probed) {
+            require(v >= -0.5 - 1e-12 && v <= 0.5 + 1e-12,
+                    "perturbation point within bounds");
+        }
+        // one-sided difference at the bound still recovers column 0 of A
+        for (int r = 0; r < 3; ++r) {
+            require(std::abs(Slo(r, 0) - A[r][0]) < 1e-6,
+                    "one-sided derivative at lower bound");
+        }
+    }
+
     // 3. control recovers a known u from a known dz
     std::vector<double> truth = {0.20, -0.10, 0.05, 0.01, -0.02};
     auto z = model.evaluate(sp.encode(truth), {});
@@ -110,6 +157,32 @@ int main() {
     auto sol5 = solver.solve(S5, z5.values, opt);
     require(sol5.ok && sol5.rank == 5, "5x5 control rank");
     for (int i = 0; i < 5; ++i) require(std::abs(sol5.u[i] - truth[i]) < 1e-6, "5x5 recovery");
+
+    // 3b. weights length validation: wrong length must throw std::invalid_argument
+    {
+        ControlOptions bad = opt;
+        bad.weights.assign(2, 1.0);  // S.rows() == 3
+        bool threw = false;
+        try {
+            (void)solver.solve(S, z.values, bad);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        require(threw, "weights size mismatch throws std::invalid_argument");
+    }
+
+    // 3c. valid weights: uniform scaling must not change the solution
+    {
+        ControlOptions wopt = opt;
+        wopt.weights.assign(static_cast<std::size_t>(S.rows()), 2.0);
+        auto wsol = solver.solve(S, z.values, wopt);
+        require(wsol.ok, "weighted control ok");
+        for (int i = 0; i < 5; ++i) {
+            require(std::abs(wsol.u[static_cast<std::size_t>(i)] -
+                             sol.u[static_cast<std::size_t>(i)]) < 1e-8,
+                    "uniform weights leave solution unchanged");
+        }
+    }
 
     // 4. plugin registry
     Registry<ForwardModel> reg;

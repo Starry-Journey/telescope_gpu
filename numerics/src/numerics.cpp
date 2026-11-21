@@ -24,6 +24,12 @@ void check_finite(const Matrix& A) {
     }
 }
 
+void check_finite(const Vector& b) {
+    if (!b.allFinite()) {
+        throw std::invalid_argument("right-hand side contains NaN/Inf");
+    }
+}
+
 void fft_radix2(std::vector<Complex>& a) {
     const std::size_t n = a.size();
     // bit-reversal permutation
@@ -63,6 +69,7 @@ Vector solve_linear(const Matrix& A, const Vector& b) {
         throw std::invalid_argument("solve_linear: b size mismatch");
     }
     check_finite(A);
+    check_finite(b);
     Eigen::FullPivLU<Matrix> lu(A);
     if (!lu.isInvertible()) {
         throw std::runtime_error("solve_linear: matrix is singular");
@@ -78,6 +85,7 @@ Vector least_squares(const Matrix& A, const Vector& b) {
         throw std::invalid_argument("least_squares: empty system");
     }
     check_finite(A);
+    check_finite(b);
     return A.colPivHouseholderQr().solve(b);
 }
 
@@ -89,6 +97,7 @@ Vector least_squares_svd(const Matrix& A, const Vector& b) {
         throw std::invalid_argument("least_squares_svd: empty system");
     }
     check_finite(A);
+    check_finite(b);
     return A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
 }
 

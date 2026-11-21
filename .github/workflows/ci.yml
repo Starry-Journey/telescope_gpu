@@ -4,9 +4,14 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cpu-and-pipeline:
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -35,20 +40,18 @@ jobs:
             exit 1
           fi
 
-      - name: Worker dispatch / no-Qt worker
-        run: python3 -m unittest discover -s desktop/tests -v
-
       - name: Doc link check
         run: python3 scripts/check_doc_links.py
 
-      - name: Ruff (E/F/I, advisory until baseline is cleaned)
+      - name: Ruff (E/F/I, advisory until baseline is cleaned; config in pyproject.toml)
         continue-on-error: true
         run: |
           pip install ruff
-          ruff check --select E,F,I --extend-exclude archive --extend-exclude scripts .
+          ruff check .
 
   framework:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -74,6 +77,7 @@ jobs:
 
   numerics:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -100,6 +104,7 @@ jobs:
 
   desktop-smoke:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install system deps
@@ -119,8 +124,14 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python3 -m unittest discover -s desktop/tests -v
 
+      - name: Desktop e2e smoke (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 desktop/e2e_smoke.py
+
   cuda-compile:
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     container: nvidia/cuda:12.4.1-devel-ubuntu22.04
     steps:
       - uses: actions/checkout@v4
@@ -134,7 +145,9 @@ jobs:
           -DTEL_BUILD_CUDA=ON
           -DTEL_BUILD_NUMERICS=OFF
           -DCMAKE_CUDA_ARCHITECTURES=86
-      - name: Compile CUDA library and apps (no GPU tests)
+      - name: Compile CUDA library, apps and GPU test binary (no GPU at runner)
         run: |
           # limit parallelism: nvcc in the CUDA container can OOM with -j$(nproc)
-          cmake --build build-cuda -j2 --target telescope_cuda forward_generate inverse_solve
+          # telescope_gpu_tests is compile-only here: it closes the "test_cuda.cu
+          # never compiled in CI" gap; execution still requires a GPU machine.
+          cmake --build build-cuda -j2 --target telescope_cuda forward_generate inverse_solve telescope_gpu_tests

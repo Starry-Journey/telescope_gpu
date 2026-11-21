@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(telescope_gpu LANGUAGES CXX)
+project(telescope_gpu VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -180,4 +180,17 @@ if(TEL_BUILD_CUDA)
     message(STATUS "telescope_gpu: CUDA arch = ${CMAKE_CUDA_ARCHITECTURES}")
 else()
     message(STATUS "telescope_gpu: CPU-only build")
+endif()
+
+# ------------------------------------------------------------
+# 4. 安装规则（make install；版本号来自 project(... VERSION 0.2.0)）
+# ------------------------------------------------------------
+install(TARGETS telescope_cpu
+        ARCHIVE DESTINATION lib)
+install(DIRECTORY include/telescope DESTINATION include)
+if(TEL_BUILD_CUDA)
+    install(TARGETS telescope_cuda
+            ARCHIVE DESTINATION lib)
+    install(TARGETS forward_generate inverse_solve
+            RUNTIME DESTINATION bin)
 endif()

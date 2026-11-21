@@ -34,6 +34,17 @@ TEST(LinearSolve, RejectsSingularAndBadShape) {
     EXPECT_THROW(solve_linear(non_square, b), std::invalid_argument);
 }
 
+TEST(LinearSolve, RejectsNanRightHandSide) {
+    Matrix A(2, 2);
+    A << 2, 0,
+         0, 2;
+    Vector b(2);
+    b << 1.0, std::nan("");
+    EXPECT_THROW(solve_linear(A, b), std::invalid_argument);
+    EXPECT_THROW(least_squares(A, b), std::invalid_argument);
+    EXPECT_THROW(least_squares_svd(A, b), std::invalid_argument);
+}
+
 TEST(LeastSquares, LineFit) {
     // y = 3 + 2x + small deterministic perturbation
     Matrix A(6, 2);

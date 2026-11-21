@@ -28,6 +28,9 @@ inverse_result.txt
 
 # ---- local / editor junk ----
 .vscode/settings.json.bak
+.ruff_cache/
+dist/
+.venv/
 nano.save
 *.save
 *.swp
@@ -49,7 +52,6 @@ __pycache__/
 ml/runs/
 ml/results/
 *.pt
-!docs/data/*.csv
 !docs/data/
 !docs/data/*.csv
 ~$*

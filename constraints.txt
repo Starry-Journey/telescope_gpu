@@ -1,0 +1,13 @@
+# 统一 Python 基线的约束文件。用法：
+#   pip install -r requirements-runtime.txt -c constraints.txt
+#
+# 锚定基线 = 本地全量测试验证环境：CPython 3.8.10（numpy/scipy 取其支持上限）。
+# CI ubuntu-22.04 与打包桌面 (py -3.13) 按各 requirements 的 `>=` 取更高版本即可；
+# 升级任一依赖后，请在三个环境各跑一遍测试矩阵再更新此文件。
+PySide6==6.12.0
+numpy==1.24.4
+scipy==1.10.1
+astropy==5.2.2
+matplotlib==3.7.5
+nlopt==2.7.1
+torch==2.2.2

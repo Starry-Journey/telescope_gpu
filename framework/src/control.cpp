@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 #include <Eigen/Dense>
 
@@ -35,6 +36,15 @@ ControlSolution WeightedLeastSquaresControl::solve(
          static_cast<int>(options.upper.size()) != n)) {
         out.message = "bounds size mismatch";
         return out;
+    }
+    // weights 是按行（每条像差目标）索引的，长度必须等于 S 的行数 m；
+    // 空表示全部取 1.0。长度不匹配会在下方循环里越界读取（UB），先校验。
+    if (!options.weights.empty() &&
+        options.weights.size() != static_cast<std::size_t>(m)) {
+        throw std::invalid_argument(
+            "WeightedLeastSquaresControl::solve: weights size mismatch, "
+            "expected " + std::to_string(m) + " (S.rows()) or empty, got " +
+            std::to_string(options.weights.size()));
     }
 
     Eigen::MatrixXd A(m, n);
