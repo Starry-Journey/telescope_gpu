@@ -25,6 +25,10 @@ ROOT = Path(__file__).resolve().parents[2]
 # Real ZOS-API output, written by scripts/zos_sensitivity.py. Never faked:
 # when the file is absent we fall back to the documented proxy and say so.
 REAL_S_PATH = ROOT / "data" / "zemax" / "sensitivity_zemax.json"
+# 口径 v2: stacked [S_Z; P] measurement (scripts/zos_s_full.py), which adds
+# the 2x5 pointing matrix so the 5-DOF M2 control problem becomes unique.
+FULL_S_PATH = ROOT / "data" / "zemax" / "sensitivity_zemax_full.json"
+POINTING_TARGETS = ["theta_x", "theta_y"]
 
 CONTROL_NAMES = ["m2_focus", "m2_decenter_x", "m2_decenter_y", "m2_tilt_x", "m2_tilt_y"]
 CONTROL_UNITS = ["mm", "mm", "mm", "mrad", "mrad"]
@@ -225,4 +229,116 @@ def control(target: Sequence[float], lam: float = 1e-8,
                  "not unique" if prov["source"] == "synthetic-proxy" else
                  "real ZOS-API S: u is minimum-norm; check nullspace for "
                  "unobservable actuator combinations"),
+    }
+
+
+# ===========================================================================
+# 口径 v2: stacked [S_Z; P] 5x5 control model (unique u)
+# ===========================================================================
+
+STACKED_TARGETS = TARGET_NAMES + POINTING_TARGETS      # [Z4, Z8, Z9, th_x, th_y]
+
+
+@lru_cache(maxsize=4)
+def load_full_sensitivity(path: Optional[str] = None) -> Optional[dict]:
+    """Load the measured [S_Z; P] stack; None when the file is absent.
+
+    The file is produced by ``scripts/zos_s_full.py`` (OpticStudio 2023 R1,
+    real prescription): S_Z 3x5 (Z4/Z8/Z9 waves per unit), S_astig 2x5
+    (Z5/Z6 evidence rows), P 2x5 (pointing arcsec per unit).
+    """
+    p = Path(path) if path else FULL_S_PATH
+    if not p.exists():
+        return None
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    sz = np.asarray(doc["S_Z"]["matrix"], dtype=float)
+    ast = np.asarray(doc["S_astig"]["matrix"], dtype=float)
+    pt = np.asarray(doc["P"]["matrix"], dtype=float)
+    if sz.shape != (3, 5) or ast.shape != (2, 5) or pt.shape != (2, 5):
+        raise ValueError("full sensitivity JSON has unexpected shapes")
+    if not (np.all(np.isfinite(sz)) and np.all(np.isfinite(pt))
+            and np.all(np.isfinite(ast))):
+        raise ValueError("full sensitivity JSON contains non-finite values")
+    A = np.vstack([sz, pt])
+    return {"S_Z": sz, "S_astig": ast, "P": pt, "A": A, "doc": doc,
+            "path": str(p)}
+
+
+def sensitivity5() -> dict:
+    """Diagnostics of the stacked [S_Z; P] 5x5 model (rank/condition/uniqueness)."""
+    full = load_full_sensitivity()
+    if full is None:
+        raise FileNotFoundError(
+            f"missing {FULL_S_PATH}; run scripts/zos_s_full.py first")
+    A = full["A"]
+    sv = np.linalg.svd(A, compute_uv=False)
+    rank = int(np.sum(sv > 1e-10 * max(float(sv[0]), 1e-12)))
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else math.inf
+    return {
+        "targets": STACKED_TARGETS,
+        "control_names": CONTROL_NAMES,
+        "control_units": CONTROL_UNITS,
+        "matrix": A.tolist(),
+        "rank": rank,
+        "condition": cond,
+        "singular_values": sv.tolist(),
+        "nullspace": A.shape[1] - rank,
+        "unique_solution": rank == A.shape[1],
+        "source": "zemax-zos-api",
+        "label": "EXTERNAL-CHECK",
+        "zmx": full["doc"].get("zmx", ""),
+        "note": ("[S_Z; P] 5x5 from the real prescription; rank 5 removes the "
+                 "minimum-norm ambiguity of the 3x5 S_Z (口径 v2 point 6)"),
+    }
+
+
+def control5(target5: Sequence[float], use_bounds: bool = True,
+             lower: Optional[Sequence[float]] = None,
+             upper: Optional[Sequence[float]] = None) -> dict:
+    """Solve the stacked model [Z4, Z8, Z9, theta_x, theta_y] = A u.
+
+    With the pointing rows the system is square and full rank, so the solution
+    is unique (verified by the caller through ``rank``/``condition``); bounds
+    are enforced with the same bounded least squares as :func:`control`.
+    """
+    full = load_full_sensitivity()
+    if full is None:
+        raise FileNotFoundError(
+            f"missing {FULL_S_PATH}; run scripts/zos_s_full.py first")
+    z = np.asarray(target5, dtype=float).reshape(-1)
+    if z.size != 5:
+        raise ValueError("target5 must have 5 values (Z4/Z8/Z9/theta_x/theta_y)")
+    A = full["A"]
+    lo = np.asarray(lower if lower is not None else LOWER, dtype=float)
+    hi = np.asarray(upper if upper is not None else UPPER, dtype=float)
+    if lo.size != 5 or hi.size != 5:
+        raise ValueError("bounds must have 5 values")
+    if use_bounds:
+        u, bls_info = bounded_least_squares(A, z, lo, hi)
+        active = int(bls_info["n_active"])
+    else:
+        u = np.linalg.solve(A, z)
+        active = 0
+    pred = A @ u
+    residual = pred - z
+    sv = np.linalg.svd(A, compute_uv=False)
+    rank = int(np.sum(sv > 1e-10 * max(float(sv[0]), 1e-12)))
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else math.inf
+    return {
+        "u": u.tolist(),
+        "target": z.tolist(),
+        "predicted": pred.tolist(),
+        "residual": residual.tolist(),
+        "wavefront_residual_waves": float(np.linalg.norm(residual[:3])),
+        "pointing_residual_arcsec": float(np.linalg.norm(residual[3:])),
+        "rank": rank,
+        "condition": cond,
+        "unique_solution": rank == A.shape[1],
+        "active_constraints": active,
+        "targets": STACKED_TARGETS,
+        "control_names": CONTROL_NAMES,
+        "control_units": CONTROL_UNITS,
+        "source": "zemax-zos-api",
+        "label": "EXTERNAL-CHECK",
+        "note": "unique u from the stacked [S_Z; P] model (口径 v2 point 6)",
     }

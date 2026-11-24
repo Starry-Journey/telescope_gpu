@@ -351,6 +351,8 @@ def _abaqus_environment_sensitivity() -> dict:
         "source": "abaqus",
         "label": "FEA-PROVISIONAL",
         "model": "abq-m1-spring-whiffletree",
+        "interpretation": (
+            "S_F: environment (gravity/thermal) -> M1 SURFACE response; a background error source, not a controller.  M2 controllability is defined by S_Z only: Z4/Z8/Z9 are M2-correctable (real Zemax rows); Z5/Z6 blindness is evidenced by S_Z astigmatism rows ~ 0 (data/zemax/sensitivity_zemax_full.json), never by this matrix"),
         "source_cases": ["M1_abq_gravity_0deg", "M1_abq_gravity_90deg",
                           "M1_abq_thermal_plus20K", "M1_abq_thermal_minus20K"],
         "gradient": {

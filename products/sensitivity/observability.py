@@ -74,6 +74,13 @@ _ASTIG_CAPABLE_KEYWORDS = (
     "astig", "warp", "bend", "quadrupole", "quad", "deform", "twist",
     "correct",
 )
+# 口径 v2 (2026-11-24, 老师确认 8 条):
+#   * S_F (environment -> M1 surface, e.g. engineering_terms_sensitivity)
+#     is a BACKGROUND error source, NOT a controller.  Dropped rows in an
+#     S_F analysis mean "M1-FEA drives this term", never "M2 is blind".
+#   * M2 controllability comes from S_Z only: Z4/Z8/Z9 are M2-correctable;
+#     Z5/Z6 (astigmatism) blindness is evidenced by the measured S_Z
+#     astigmatism rows (scripts/zos_s_full.py -> S_astig ~ 0), not by S_F.
 _ASTIG_BLIND_KEYWORDS = (
     "focus", "decenter", "translat", "shift", "tilt", "tip", "piston",
     "clock", "rotation",
@@ -845,6 +852,27 @@ def astigmatism_plan(fea_summary: Mapping, dofs: Any = None) -> dict:
     plan = _recommendation(astig, can_correct, names)
     drop_row = not can_correct
 
+    # 口径 v2 evidence chain: cite the measured S_Z astigmatism rows (real
+    # Zemax) instead of S_F.  Z8/Z9 are M2-correctable per S_Z and must never
+    # be listed as M2-blind; only Z5/Z6 belong to the FEA/alignment request.
+    sz_evidence = None
+    try:
+        from products.control.service import load_full_sensitivity
+        full = load_full_sensitivity()
+        if full is not None:
+            sa = np.asarray(full["S_astig"], dtype=float)
+            sz_evidence = {
+                "source": full["doc"].get("source", "ZOS-API"),
+                "targets": ["Z5", "Z6"],
+                "matrix": sa.tolist(),
+                "max_abs": float(np.max(np.abs(sa))),
+                "conclusion": ("M2 produces no measurable astigmatism "
+                               "(all |S_astig| ~ 0) -> M2 cannot correct Z5/Z6; "
+                               "Z8/Z9 ARE M2-correctable per S_Z"),
+            }
+    except Exception:                      # pragma: no cover - optional
+        sz_evidence = None
+
     warning = (
         "FEA-PROVISIONAL: this plan is derived from the Abaqus/FEA surface "
         "fit and the assumed mechanism kinematics (spring-whiffletree M1 "
@@ -856,6 +884,7 @@ def astigmatism_plan(fea_summary: Mapping, dofs: Any = None) -> dict:
 
     result = {
         "label": "FEA-PROVISIONAL",
+        "sz_evidence": sz_evidence,
         "warning": warning,
         "case": astig.get("case"),
         "Z5_nm": astig["Z5_nm"],
