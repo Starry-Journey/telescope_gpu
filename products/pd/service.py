@@ -35,7 +35,11 @@ def invert_psf(psf: List[List[List[float]]], defocus: Sequence[float],
     n = int(data.shape[1])
     if len(defocus) != data.shape[0]:
         raise ValueError("defocus length must match frames")
-    data = _normalise(np.clip(data, 0, None))
+    # P1-8: keep negative pixels after background subtraction (C++ main-link
+    # parity, phase_diversity.cu keeps negatives with the +5.6 count/px bias
+    # derivation); clipping here reintroduces the half-wave rectification
+    # bias (sigma/sqrt(2*pi)) on real, background-subtracted frames.
+    data = _normalise(data)
 
     n_starts = max(1, min(int(n_starts), 8))
     rng = np.random.default_rng(int(seed))

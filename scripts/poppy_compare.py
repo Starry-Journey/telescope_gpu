@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from ml.traditional import forward_psf_numpy
+from products.optics.forward import center_psf
 
 D = [-2.0, -1.0, 0.0, 1.0, 2.0]
 
@@ -37,6 +38,9 @@ def main():
     ap.add_argument("--out", default="results/poppy_compare.json")
     args = ap.parse_args()
     poppy = np.load(args.poppy)
+    # P2-11: the stored POPPY frames are off-centre; compare both sides on the
+    # same (n/2, n/2) convention so FWHM/SSE are not dominated by the offset.
+    poppy = np.stack([center_psf(f, args.n) for f in poppy])
     ours = np.stack([forward_psf_numpy([0, 0, 0], d, n=args.n,
                                        obscuration=args.obscuration) for d in D])
     rows = []

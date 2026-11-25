@@ -1,0 +1,166 @@
+{
+  "source": "ZOS-API Ansys Zemax OpticStudio 2023 R1 (licensed, real ZMX)",
+  "zmx": "2.5m主系统.zmx",
+  "surface": 4,
+  "delta": 0.01,
+  "f_sys_mm": 20625.0,
+  "controls": [
+    "m2_focus",
+    "m2_decenter_x",
+    "m2_decenter_y",
+    "m2_tilt_x",
+    "m2_tilt_y"
+  ],
+  "control_units": [
+    "mm",
+    "mm",
+    "mm",
+    "mrad",
+    "mrad"
+  ],
+  "S_Z": {
+    "targets": [
+      "Z4",
+      "Z8",
+      "Z9"
+    ],
+    "matrix": [
+      [
+        -23.284178,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.6564109999999999,
+        0.0,
+        0.0,
+        1.386782
+      ],
+      [
+        0.0,
+        0.0,
+        -1.6564109999999999,
+        -1.386782,
+        0.0
+      ]
+    ],
+    "unit": "waves/(mm or mrad)"
+  },
+  "S_astig": {
+    "targets": [
+      "Z5",
+      "Z6"
+    ],
+    "matrix": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "unit": "waves/(mm or mrad)",
+    "note": "M2->astigmatism evidence rows; near-zero supports 'M2 blind to Z5/Z6' without using S_F"
+  },
+  "P": {
+    "targets": [
+      "theta_x",
+      "theta_y"
+    ],
+    "matrix": [
+      [
+        0.0,
+        -55.92134961912443,
+        0.0,
+        0.0,
+        49.30285543359331
+      ],
+      [
+        0.0,
+        0.0,
+        -55.92134961912443,
+        -49.30285543359331,
+        0.0
+      ]
+    ],
+    "unit": "arcsec/(mm or mrad)",
+    "note": "on-axis chief-ray image displacement / f_sys (StandardSpot per-field 像坐标)"
+  },
+  "stacked": {
+    "matrix": [
+      [
+        -23.284178,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.6564109999999999,
+        0.0,
+        0.0,
+        1.386782
+      ],
+      [
+        0.0,
+        0.0,
+        -1.6564109999999999,
+        -1.386782,
+        0.0
+      ],
+      [
+        0.0,
+        -55.92134961912443,
+        0.0,
+        0.0,
+        49.30285543359331
+      ],
+      [
+        0.0,
+        0.0,
+        -55.92134961912443,
+        -49.30285543359331,
+        0.0
+      ]
+    ],
+    "targets": [
+      "Z4",
+      "Z8",
+      "Z9",
+      "theta_x",
+      "theta_y"
+    ],
+    "rank": 5,
+    "condition": 1351.7707736003013,
+    "singular_values": [
+      74.5830591665352,
+      74.5830591665352,
+      23.284177999999997,
+      0.05517433918763953,
+      0.055174339187620505
+    ],
+    "note": "[S_Z; P] 5x5 -> u unique (口径 v2 point 6)"
+  },
+  "baseline": {
+    "Z4": -0.08735702,
+    "Z8": 0.0,
+    "Z9": 0.0,
+    "Z5": 0.0,
+    "Z6": 0.0,
+    "Z11": 0.14143358
+  },
+  "elapsed_s": 2.96,
+  "label": "EXTERNAL-CHECK"
+}

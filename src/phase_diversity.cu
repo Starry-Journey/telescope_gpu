@@ -66,6 +66,8 @@ __global__ void cost_reduce_kernel(const float* data,
     if (threadIdx.x == 0) costs[frame] = smem[0];
 }
 
+// 文件名按 %+.1f 量化（kDefocusNameQuantum）。名字因此只承载 0.1 waves
+// 的信息；加载时的头部校验容差（kDefocusHeaderTolerance）必须与之联动。
 std::string frame_path(const std::string& dir, float theta_deg, float defocus) {
     char buf[512];
     const int n = std::snprintf(buf, sizeof(buf),
@@ -115,6 +117,10 @@ public:
     ForwardModelGPU model;
     std::vector<float> host_defocus;
     std::vector<double> host_costs;  // 复用，避免每次 evaluate 都分配
+    // P1-9: coarse-search global evaluation budget. 40 starts x 200 rounds
+    // x 6 dirs worst case ~48k evaluate() calls (each 5x512^2 cuFFT):
+    // unbounded wall time. Cap the total; on overrun keep the current
+    // best (best is tracked by minf).
     DeviceBuffer<float> d_data;
     DeviceBuffer<float> d_model;
     DeviceBuffer<double> d_costs;
@@ -206,6 +212,10 @@ double nlopt_objective(const std::vector<double>& x,
 }  // namespace
 
 SolveResult PhaseDiversitySolver::solve() {
+    // P1-9: coarse-search global evaluation budget (see the
+    // member comment above the evaluate() accounting).
+    constexpr int kMaxCoarseEvals = 20000;
+    int coarse_evals = 0;
     if (options_.n_starts < 1) throw std::invalid_argument("n_starts must be >= 1");
     if (options_.n_refine < 1) throw std::invalid_argument("n_refine must be >= 1");
     if (options_.maxeval < 1) throw std::invalid_argument("maxeval must be >= 1");
@@ -234,7 +244,8 @@ SolveResult PhaseDiversitySolver::solve() {
     std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
 
     if (verbose) std::printf("\n=== 多起点粗搜（%d 起点）===\n", options_.n_starts);
-    for (int s = 0; s < options_.n_starts; ++s) {
+    bool budget_hit = false;
+    for (int s = 0; s < options_.n_starts && !budget_hit; ++s) {
         ZernikeCoeffs coeffs{};
         for (int k : active) {
             coeffs[k] = options_.bounds.lower[k] +
@@ -242,8 +253,9 @@ SolveResult PhaseDiversitySolver::solve() {
         }
 
         double best = evaluate(coeffs);
+        ++coarse_evals;
         float step = 0.3f;
-        for (int iter = 0; iter < 200 && step >= 1e-4f; ++iter) {
+        for (int iter = 0; iter < 200 && step >= 1e-4f && !budget_hit; ++iter) {
             bool improved = false;
             for (int k : active) {
                 for (int dir : {-1, 1}) {
@@ -253,12 +265,27 @@ SolveResult PhaseDiversitySolver::solve() {
                     if (trial[k] == coeffs[k]) continue;
 
                     const double cost = evaluate(trial);
+                    ++coarse_evals;
                     if (cost < best) {
                         best = cost;
                         coeffs = trial;
                         improved = true;
                     }
+                    // P1-9: 全局预算用尽就停在当前最优，别让一个病态工况
+                    // 把整个反演拖成数分钟；把当前起点记入候选后退出粗搜。
+                    if (coarse_evals >= kMaxCoarseEvals) {
+                        budget_hit = true;
+                        break;
+                    }
                 }
+                if (budget_hit) break;
+            }
+            if (budget_hit) {
+                if (verbose) {
+                    std::printf("coarse search hit the %d-eval budget; "
+                                "keeping current best\n", kMaxCoarseEvals);
+                }
+                break;
             }
             if (!improved) step *= 0.5f;
         }
@@ -298,10 +325,10 @@ SolveResult PhaseDiversitySolver::solve() {
             opt.set_upper_bounds(upper);
             opt.set_min_objective(nlopt_objective, &ctx);
             opt.set_maxeval(options_.maxeval);
-            // fp32 代价噪声 ε≈1.2e-7（模型生成/数据都是 fp32）。ftol 低于
-            // 噪声时优化器永远观察不到“足够小的改进”，每次精修都会烧满
-            // maxeval。阈值必须保持在噪声之上。
-            opt.set_ftol_rel(1e-7);
+            // P1-9: fp32 代价噪声 ε≈1.2e-7（模型生成/数据都是 fp32）。ftol
+            // 低于噪声时优化器永远观察不到“足够小的改进”，每次精修都会烧满
+            // maxeval；取 2e-7（>= 2×噪声）。
+            opt.set_ftol_rel(2e-7);
             opt.set_xtol_rel(1e-6);
 
             double minf = 0.0;
@@ -339,6 +366,11 @@ SolveResult PhaseDiversitySolver::solve() {
     constexpr double kPseudoCostTolerance = 0.01;
     result.pseudo_solution =
         result.cost < result.cost_true * (1.0 - kPseudoCostTolerance);
+    // D3: 反方向同样要告警——代价明显高于真值代价说明优化器没收敛到真解
+    // （起点不足 / 粗搜预算截断 / 触边），此时误差不能归到模型头上。
+    result.underfit_solution =
+        std::isfinite(result.cost_true) &&
+        result.cost > result.cost_true * (1.0 + kPseudoCostTolerance);
     return result;
 }
 
@@ -380,7 +412,9 @@ bool load_frame_set(const std::string& data_dir,
                     std::to_string(theta_deg);
             return false;
         }
-        if (std::fabs(meta.defocus - defocus[f]) > 0.05f) {
+        // D5: 容差严格小于文件名的半个量子（0.05），避免相邻量子步进的
+        // 帧恰好卡在边界上、由 float 舍入决定通过与否。
+        if (std::fabs(meta.defocus - defocus[f]) > kDefocusHeaderTolerance) {
             error = "defocus mismatch in " + path + ": header " +
                     std::to_string(meta.defocus) + " vs requested " +
                     std::to_string(defocus[f]);

@@ -10,7 +10,7 @@ Model (deliberately plate level, documented assumptions):
   * 36 bottom whiffletree pads in a 6-12-12-6 pattern
     (r = 375 / 625 / 875 / 1125 mm);
   * 24 side pads at mid-thickness (radial restraint);
-  * pads modelled as springs to ground (k = 1e5 N/mm axial / 1e5 N/mm radial)
+  * pads modelled as springs to ground (defaults: k_bottom = 1e6 N/mm, k_side = 5e5 N/mm; override with TEL_ABAQUS_KB / TEL_ABAQUS_KS)
     instead of CAD contacts -> idealized whiffletree, NOT a real contact;
   * material Zerodur: E=90 GPa, nu=0.24, rho=2.53e-9 t/mm^3,
     alpha = 5e-8 /K (upper bound of 0 +/- 0.05 ppm/K);

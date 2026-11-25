@@ -7,7 +7,7 @@
 
 // ---------------------------------------------------------------------------
 // Numerical core implementation
-//   solve_linear : partial-pivot LU
+//   solve_linear : full-pivot LU (Eigen::FullPivLU)
 //   least_squares: Householder QR / SVD fallback
 //   fft          : radix-2 Cooley-Tukey
 //   solve_ode_*  : fixed-step RK4

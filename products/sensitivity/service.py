@@ -351,6 +351,8 @@ def _abaqus_environment_sensitivity() -> dict:
         "source": "abaqus",
         "label": "FEA-PROVISIONAL",
         "model": "abq-m1-spring-whiffletree",
+        "interpretation": (
+            "S_F: environment (gravity/thermal) -> M1 SURFACE response; a background error source, not a controller.  M2 controllability is defined by S_Z only: Z4/Z8/Z9 are M2-correctable (real Zemax rows); Z5/Z6 blindness is evidenced by S_Z astigmatism rows ~ 0 (data/zemax/sensitivity_zemax_full.json), never by this matrix"),
         "source_cases": ["M1_abq_gravity_0deg", "M1_abq_gravity_90deg",
                           "M1_abq_thermal_plus20K", "M1_abq_thermal_minus20K"],
         "gradient": {
@@ -372,8 +374,9 @@ def _engineering_astigmatism(z_nm: Dict[str, Dict[str, float]]) -> dict:
         z5 = float(terms.get("Z5", 0.0))
         z6 = float(terms.get("Z6", 0.0))
         mag = float(math.hypot(z5, z6))
-        phase = float(math.degrees(math.atan2(z6, z5)))   # atan2(Z6, Z5)
-        axis = float((0.5 * phase) % 180.0)
+        # P1-3: physical axis = 0.5*atan2(Z5, Z6); legacy phase kept for continuity
+        phase = float(math.degrees(math.atan2(z6, z5)))
+        axis = float((0.5 * math.degrees(math.atan2(z5, z6))) % 180.0)
         per_case[case_id] = {
             "Z5_nm": z5,
             "Z6_nm": z6,
@@ -393,9 +396,10 @@ def _engineering_astigmatism(z_nm: Dict[str, Dict[str, float]]) -> dict:
         "per_case": per_case,
         "wavelength_nm": WAVELENGTH_NM,
         "orientation_convention": (
-            "orientation_deg = atan2(Z6, Z5) in degrees on the surface-nm "
-            "coefficients; the physical mirror azimuth of the high lobe is "
-            "astigmatism_axis_deg = 0.5 * orientation_deg mod 180"
+            "astigmatism_axis_deg = 0.5*atan2(Z5, Z6) mod 180 on the "
+            "surface-nm coefficients (Z5=sin(2t), Z6=cos(2t)); "
+            "orientation_deg = atan2(Z6, Z5) is the legacy phase, kept for "
+            "continuity only"
         ),
         "note": ("absolute FEA coefficients (surface nm) of the M1 plate; "
                  "the worst-magnitude case drives the adjustment plan"),

@@ -5,8 +5,12 @@
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/src",
-                "/usr/local/cuda-12.4/include",
-                "/usr/local/cuda-12.4/targets/x86_64-linux/include"
+                "${workspaceFolder}/numerics/include",
+                "${workspaceFolder}/framework/include",
+                "${workspaceFolder}/framework/plugins",
+                "/usr/include/eigen3",
+                "/usr/local/cuda/include",
+                "/usr/local/cuda/targets/x86_64-linux/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/g++",

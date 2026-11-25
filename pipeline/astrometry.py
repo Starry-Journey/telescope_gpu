@@ -8,6 +8,12 @@ The FITS header carries the TAN WCS.  The distortion polynomial is fitted
 from star matches, then applied to the moving-target detections.  This is the
 same decomposition used by SIP / SCAMP-style astrometric solutions, but the
 polynomial is kept explicit so the least-squares step is visible.
+
+Caveat (P2-17): ``solve_astrometry`` fits the distortion on the same matched
+stars that the reported residual RMS is computed from (no holdout split), and
+the simulated frames carry 0.6 pixel pointing jitter.  The residual is
+therefore *in-sample* and optimistic; it measures fit quality, not an
+independent astrometric accuracy.
 """
 from __future__ import annotations
 

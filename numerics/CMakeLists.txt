@@ -42,8 +42,38 @@ if(TEL_NUMERICS_BUILD_TESTS)
     # pinned source build; set TEL_NUMERICS_USE_SYSTEM_GTEST=ON to override.
     option(TEL_NUMERICS_USE_SYSTEM_GTEST "Use a system GTest instead of FetchContent" OFF)
     if(TEL_NUMERICS_USE_SYSTEM_GTEST)
-        find_package(GTest REQUIRED)
-        set(TEL_GTEST_TARGET GTest::gtest_main)
+        # 不走 find_package(GTest)：CMake 的 FindGTest 内部还会执行一次
+        # config 模式查找，而 WSL 的 PATH 里有 Windows conda，会把
+        # /mnt/c/.../GTestConfig.cmake（MSVC ABI）搜出来。这里只查 Linux
+        # 系统目录，保证拿到的是 /usr/lib 下的 .a。
+        find_path(TEL_GTEST_INCLUDE_DIR gtest/gtest.h
+            PATHS /usr/include /usr/local/include
+            NO_DEFAULT_PATH)
+        find_library(TEL_GTEST_LIBRARY gtest
+            PATHS /usr/lib/x86_64-linux-gnu /usr/lib /usr/local/lib
+            NO_DEFAULT_PATH)
+        find_library(TEL_GTEST_MAIN_LIBRARY gtest_main
+            PATHS /usr/lib/x86_64-linux-gnu /usr/lib /usr/local/lib
+            NO_DEFAULT_PATH)
+        if(TEL_GTEST_INCLUDE_DIR AND TEL_GTEST_LIBRARY AND TEL_GTEST_MAIN_LIBRARY)
+            find_package(Threads REQUIRED)
+            add_library(tel_gtest_main INTERFACE)
+            target_include_directories(tel_gtest_main INTERFACE
+                ${TEL_GTEST_INCLUDE_DIR})
+            target_link_libraries(tel_gtest_main INTERFACE
+                ${TEL_GTEST_MAIN_LIBRARY} ${TEL_GTEST_LIBRARY}
+                Threads::Threads)
+            set(TEL_GTEST_TARGET tel_gtest_main)
+        else()
+            message(WARNING "System GTest not found under /usr; "
+                            "falling back to FetchContent")
+            FetchContent_Declare(googletest
+                URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+                DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+            set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+            FetchContent_MakeAvailable(googletest)
+            set(TEL_GTEST_TARGET gtest_main)
+        endif()
     else()
         FetchContent_Declare(googletest
             URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
@@ -82,6 +112,10 @@ endif()
 if(TEL_NUMERICS_BUILD_PYTHON)
     find_program(TEL_PYTHON_EXECUTABLE NAMES python3 python)
     if(TEL_PYTHON_EXECUTABLE)
+        # pybind11 3.x 默认走 FindPython；显式指定解释器，避免在 WSL 上
+        # 把 /usr/bin/python3（3.8）和 venv 里的 3.12 混用。
+        set(PYBIND11_FINDPYTHON ON CACHE BOOL "" FORCE)
+        set(Python_EXECUTABLE "${TEL_PYTHON_EXECUTABLE}" CACHE FILEPATH "" FORCE)
         execute_process(
             COMMAND ${TEL_PYTHON_EXECUTABLE} -c "import pybind11; print(pybind11.get_cmake_dir())"
             OUTPUT_VARIABLE TEL_PYBIND11_CMAKE_DIR

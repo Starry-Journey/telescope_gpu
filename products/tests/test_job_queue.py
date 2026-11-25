@@ -52,5 +52,37 @@ class JobQueueTest(unittest.TestCase):
                          "lazy test must not create a DB inside the repo")
 
 
+    def test_claim_is_exclusive_under_concurrency(self):
+        """P1-10: N concurrent claimers on J queued jobs -> each job claimed once."""
+        import threading
+
+        with tempfile.TemporaryDirectory() as td:
+            db_path = Path(td) / "conc.sqlite3"
+            store = js.JobStore(db_path)
+            n_jobs = 12
+            jids = [store.submit("ccd", {"i": i}) for i in range(n_jobs)]
+            winners, lock = [], threading.Lock()
+            n_workers = 6
+
+            def work(worker_id):
+                while True:
+                    got = store.claim("ccd", "w%d" % worker_id)
+                    if got is None:
+                        return
+                    with lock:
+                        winners.append(got["id"])
+
+            threads = [threading.Thread(target=work, args=(k,))
+                       for k in range(n_workers)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            self.assertEqual(len(winners), n_jobs)
+            self.assertEqual(len(set(winners)), n_jobs)
+            self.assertEqual(sorted(winners), sorted(jids))
+
+
 if __name__ == "__main__":
     unittest.main()

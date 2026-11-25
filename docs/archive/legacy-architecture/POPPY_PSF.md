@@ -52,8 +52,16 @@ PYTHONPATH=. python3 scripts/pd_batch_256.py \
 
 ## 4. 结果解释
 
-用 POPPY 的 0.28 遮拦 PSF 跑 PD，Z4 约 -0.22，Z8/Z9 到边界，说明
-**POPPY 的 pupil/采样与解析 forward 仍不完全一致**（遮拦、像素、Zernike 符号）。
+用 POPPY 的 0.28 遮拦 PSF 跑 PD（`--starts 3 --maxeval 20 --obscuration 0.28`）：
+
+```text
+zernike = [-0.345, +0.0002, -0.0011] waves   cost = 2.1e-8   20 evals
+```
+
+（P2-11 之前的导出把 512² 探测器网格左上角裁成 256²，PSF 中心正好落在裁切角上，
+只剩四分之一能量，旧值 Z4≈-0.22 是残缺帧的结果。现在中心裁切后 Z4≈-0.34，
+Z8/Z9 已回到 0 附近，但 Z4 仍非零——**POPPY 的 pupil/采样与解析 forward 仍不完全
+一致**（遮拦、像素尺度、Zernike 归一化）。
 
 这只能说明：
 
@@ -70,14 +78,19 @@ PYTHONPATH=. python3 scripts/pd_batch_256.py \
 
 ## 6. 外部对比结果
 
-`scripts/poppy_compare.py` 比较 POPPY 与自有 analytic forward（同 256²、0.28 遮拦）：
+`scripts/poppy_compare.py` 比较 POPPY 与自有 analytic forward（同 256²、0.28 遮拦，
+两侧都经 `products.optics.forward.center_psf` 统一到 (n/2, n/2) 定心约定）：
 
 ```text
-defocus +1 wave:
-  POPPY FWHM ~= 76.4 px
-  ours  FWHM ~= 21.5 px
-  normalized SSE ~= 2.3e-8
+defocus  POPPY FWHM  ours FWHM  normalized SSE
+    0.0      9.47 px    1.58 px     2.4e-6
+   +1.0    157.09 px   21.51 px     2.1e-8
+   +2.0    231.40 px   45.30 px     5.6e-9
 ```
+
+两侧 FWHM 比值稳定在 5–7 倍，量级差来自**像素尺度不同**（POPPY 探测器在
+0.01″/px 下按 2× 过采样输出 512²，而解析 forward 的 256² 网格对应更粗的采样），
+不是定心问题：定心修好后，零离焦帧的峰值与质心都落在 (128,128) 附近。
 
 FWHM 差 3.5 倍，说明两者**像素尺度/OTF 采样**不同；SSE 小只是因为能量被摊开，
 不能据此说模型一致。POPPY 只用于外部检查，不接入求解器。

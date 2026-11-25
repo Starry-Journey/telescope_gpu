@@ -25,10 +25,15 @@ Conventions
 * Astigmatism is read from Zernike terms Z5 = (2, -2) and Z6 = (2, 2).  The
   fitted FEA coefficients are **surface** nanometres (products.optics.zernike
   fit convention); the wavefront is twice the surface error for a reflection.
-* Orientation is computed exactly as requested from the (Z6, Z5) pair::
+* Orientation (口径 v2 / P1-3 fix): with the repo base convention
+  Z5 = (2, -2) = sin(2t) and Z6 = (2, 2) = cos(2t), the surface term is
+  W ∝ Z5*sin(2t) + Z6*cos(2t), so the physical high-lobe azimuth is::
 
-      phase   = atan2(Z6, Z5)        # conventional atan2(y=Z6, x=Z5), degrees
-      axis    = 0.5 * phase mod 180  # physical mirror azimuth of the high lobe
+      axis = 0.5 * atan2(Z5, Z6) mod 180
+
+  (The previous release used 0.5*atan2(Z6, Z5), which is the same axis
+  rotated by the 45-degree family; verified by numerical scan of the repo
+  zernike() basis: Z5=-1.3643, Z6=+2.5988 nm -> true lobe at 166.15 deg.)
 
   The factor 1/2 is required because a Zernike astigmatism pattern depends on
   ``cos(2*theta)``: it is invariant under a 180 deg rotation.  ``phase`` is
@@ -74,6 +79,13 @@ _ASTIG_CAPABLE_KEYWORDS = (
     "astig", "warp", "bend", "quadrupole", "quad", "deform", "twist",
     "correct",
 )
+# 口径 v2 (2026-11-24, 老师确认 8 条):
+#   * S_F (environment -> M1 surface, e.g. engineering_terms_sensitivity)
+#     is a BACKGROUND error source, NOT a controller.  Dropped rows in an
+#     S_F analysis mean "M1-FEA drives this term", never "M2 is blind".
+#   * M2 controllability comes from S_Z only: Z4/Z8/Z9 are M2-correctable;
+#     Z5/Z6 (astigmatism) blindness is evidenced by the measured S_Z
+#     astigmatism rows (scripts/zos_s_full.py -> S_astig ~ 0), not by S_F.
 _ASTIG_BLIND_KEYWORDS = (
     "focus", "decenter", "translat", "shift", "tilt", "tip", "piston",
     "clock", "rotation",
@@ -325,9 +337,12 @@ def _astig_from_terms(z5: float, z6: float, case: Optional[str] = None) -> dict:
     """Build the documented astigmatism record from surface-nm Z5/Z6."""
     z5, z6 = float(z5), float(z6)
     mag = float(math.hypot(z5, z6))
-    phase_rad = float(math.atan2(z6, z5))          # atan2(y=Z6, x=Z5)
+    # P1-3: axis = 0.5*atan2(Z5, Z6); "orientation" keeps the legacy atan2(Z6, Z5)
+    # phase for continuity, but the physical azimuth is the corrected axis below.
+    phase_rad = float(math.atan2(z6, z5))          # legacy phase (atan2(Z6, Z5))
     phase_deg = float(math.degrees(phase_rad))     # (-180, 180]
-    axis_deg = float((0.5 * phase_deg) % 180.0)    # high lobe, mod 180
+    axis_rad = float(math.atan2(z5, z6))           # tan(2t) = Z5/Z6
+    axis_deg = float((0.5 * math.degrees(axis_rad)) % 180.0)   # high lobe, mod 180
     return {
         "Z5_nm": z5,
         "Z6_nm": z6,
@@ -845,6 +860,27 @@ def astigmatism_plan(fea_summary: Mapping, dofs: Any = None) -> dict:
     plan = _recommendation(astig, can_correct, names)
     drop_row = not can_correct
 
+    # 口径 v2 evidence chain: cite the measured S_Z astigmatism rows (real
+    # Zemax) instead of S_F.  Z8/Z9 are M2-correctable per S_Z and must never
+    # be listed as M2-blind; only Z5/Z6 belong to the FEA/alignment request.
+    sz_evidence = None
+    try:
+        from products.control.service import load_full_sensitivity
+        full = load_full_sensitivity()
+        if full is not None:
+            sa = np.asarray(full["S_astig"], dtype=float)
+            sz_evidence = {
+                "source": full["doc"].get("source", "ZOS-API"),
+                "targets": ["Z5", "Z6"],
+                "matrix": sa.tolist(),
+                "max_abs": float(np.max(np.abs(sa))),
+                "conclusion": ("M2 produces no measurable astigmatism "
+                               "(all |S_astig| ~ 0) -> M2 cannot correct Z5/Z6; "
+                               "Z8/Z9 ARE M2-correctable per S_Z"),
+            }
+    except Exception:                      # pragma: no cover - optional
+        sz_evidence = None
+
     warning = (
         "FEA-PROVISIONAL: this plan is derived from the Abaqus/FEA surface "
         "fit and the assumed mechanism kinematics (spring-whiffletree M1 "
@@ -856,6 +892,7 @@ def astigmatism_plan(fea_summary: Mapping, dofs: Any = None) -> dict:
 
     result = {
         "label": "FEA-PROVISIONAL",
+        "sz_evidence": sz_evidence,
         "warning": warning,
         "case": astig.get("case"),
         "Z5_nm": astig["Z5_nm"],
@@ -870,7 +907,8 @@ def astigmatism_plan(fea_summary: Mapping, dofs: Any = None) -> dict:
         "correction_axis_deg": astig["correction_axis_deg"],
         "wavelength_nm": WAVELENGTH_NM,
         "orientation_convention": (
-            "orientation_deg = atan2(Z6, Z5) in degrees; Z5 is the cos(2t) "
+            "axis = 0.5*atan2(Z5, Z6) (Z5=sin(2t), Z6=cos(2t)); the legacy "
+        "orientation_deg = atan2(Z6, Z5) phase is kept for continuity; "
             "and Z6 the sin(2t) coefficient, so the physical mirror azimuth "
             "of the high lobe is astigmatism_axis_deg = orientation_deg / 2 "
             "mod 180; correction_axis_deg = astigmatism_axis_deg + 90 mod 180"

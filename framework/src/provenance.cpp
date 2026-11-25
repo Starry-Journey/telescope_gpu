@@ -1,5 +1,6 @@
 #include "instrument/provenance.hpp"
 
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 
@@ -40,7 +41,12 @@ std::string RunManifest::to_json() const {
     for (const auto& kv : metrics) {
         if (!first) os << ", ";
         first = false;
+        // P2-16: never write NaN/Inf into the provenance JSON.
+        if (std::isnan(kv.second) || std::isinf(kv.second)) {
+            os << q(kv.first) << ": \"non-finite\"";
+        } else {
         os << q(kv.first) << ": " << std::setprecision(12) << kv.second;
+        }
     }
     os << "},\n";
     os << "  \"wall_time_s\": " << std::setprecision(12) << wall_time_s << "\n";

@@ -4,7 +4,12 @@
 # 锚定基线 = 本地全量测试验证环境：CPython 3.8.10（numpy/scipy 取其支持上限）。
 # CI ubuntu-22.04 与打包桌面 (py -3.13) 按各 requirements 的 `>=` 取更高版本即可；
 # 升级任一依赖后，请在三个环境各跑一遍测试矩阵再更新此文件。
-PySide6==6.12.0
+#
+# PySide6：6.10+ 的 Linux wheel 需要 glibc >= 2.34（Ubuntu 22.04+）。
+# 本机已迁到 24.04（glibc 2.39），可装 6.12；Linux 分支暂留 6.9.3，
+# Windows 仍用 6.12。
+PySide6==6.12.0; sys_platform == "win32"
+PySide6==6.9.3; sys_platform != "win32"
 numpy==1.24.4
 scipy==1.10.1
 astropy==5.2.2

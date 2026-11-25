@@ -19,12 +19,17 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
+from products.instrument import DEFAULT_WAVELENGTH_NM
 from products.lsq import bounded_least_squares
 
 ROOT = Path(__file__).resolve().parents[2]
 # Real ZOS-API output, written by scripts/zos_sensitivity.py. Never faked:
 # when the file is absent we fall back to the documented proxy and say so.
 REAL_S_PATH = ROOT / "data" / "zemax" / "sensitivity_zemax.json"
+# 口径 v2: stacked [S_Z; P] measurement (scripts/zos_s_full.py), which adds
+# the 2x5 pointing matrix so the 5-DOF M2 control problem becomes unique.
+FULL_S_PATH = ROOT / "data" / "zemax" / "sensitivity_zemax_full.json"
+POINTING_TARGETS = ["theta_x", "theta_y"]
 
 CONTROL_NAMES = ["m2_focus", "m2_decenter_x", "m2_decenter_y", "m2_tilt_x", "m2_tilt_y"]
 CONTROL_UNITS = ["mm", "mm", "mm", "mrad", "mrad"]
@@ -118,7 +123,32 @@ def _matrix(source: str = "auto") -> tuple[np.ndarray, dict]:
                "zmx": "", "delta": None}
 
 
-def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
+
+
+def _wavelength_scale(s_wavelength_um: float,
+                      target_wavelength_nm: Optional[float]) -> tuple[float, Optional[str]]:
+    """Scale factor taking S (waves @ s_wavelength_um) to waves @ target.
+
+    Orthonormal Zernike coefficients in waves scale as 1/lambda for the same
+    physical surface: S@target = S@lambda_s * lambda_s / lambda_target.
+    Returns (factor, note); factor=1.0 and a warning note when no target is
+    given (legacy behaviour preserved, P1-2).
+    """
+    if target_wavelength_nm is None:
+        return 1.0, (
+            "wavelength mismatch warning: S is in waves @ %.1f nm while the "
+            "control target is normally waves @ %.1f nm; pass "
+            "target_wavelength_nm=%.1f to scale (factor %.4f). Unscaled by "
+            "default (legacy behaviour)." % (
+                s_wavelength_um * 1e3, DEFAULT_WAVELENGTH_NM,
+                DEFAULT_WAVELENGTH_NM, s_wavelength_um * 1e3 / DEFAULT_WAVELENGTH_NM))
+    factor = s_wavelength_um * 1e3 / float(target_wavelength_nm)
+    note = ("S scaled by %.6f from waves @ %.1f nm to waves @ %.1f nm" % (
+        factor, s_wavelength_um * 1e3, float(target_wavelength_nm)))
+    return factor, note
+
+def sensitivity(step: float = 1e-3, source: str = "auto",
+                target_wavelength_nm: Optional[float] = None) -> dict:
     """Central-difference S at u=0 (proxy) or the measured Zemax file.
 
     With source="auto" the real ZOS-API matrix is used when present; the
@@ -127,6 +157,12 @@ def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
     if not (0.0 < step < 0.1):
         raise ValueError("step must be in (0, 0.1)")
     S, prov = _matrix(source)
+    s_um = None
+    if prov.get("source") == "zemax-zos-api":
+        full = load_real_sensitivity()
+        s_um = (full["doc"].get("wavelength_um") if full else None) or 0.7
+    factor, wnote = _wavelength_scale(s_um or 0.7, target_wavelength_nm)
+    S = S * factor
     if prov["source"] == "synthetic-proxy":
         base = np.zeros(5)
         cols = []
@@ -152,6 +188,7 @@ def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
         "singular_values": sv.tolist(),
         "nullspace": 5 - rank,
         "unit": "waves / (mm or mrad)",
+        "wavelength_note": wnote,
         "source": prov["source"],
         "label": prov["label"],
         "zmx": prov["zmx"],
@@ -163,7 +200,8 @@ def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
 def control(target: Sequence[float], lam: float = 1e-8,
             use_bounds: bool = True, lower: Optional[Sequence[float]] = None,
             upper: Optional[Sequence[float]] = None,
-            source: str = "auto") -> dict:
+            source: str = "auto",
+            target_wavelength_nm: Optional[float] = None) -> dict:
     """Weighted least squares + Tikhonov, on the real or proxy S.
 
     With ``use_bounds=True`` the box constraints ``lower <= u <= upper`` are
@@ -179,6 +217,12 @@ def control(target: Sequence[float], lam: float = 1e-8,
     if lam < 0:
         raise ValueError("lambda must be >= 0")
     S, prov = _matrix(source)
+    s_um = None
+    if prov.get("source") == "zemax-zos-api":
+        full = load_real_sensitivity()
+        s_um = (full["doc"].get("wavelength_um") if full else None) or 0.7
+    factor, wnote = _wavelength_scale(s_um or 0.7, target_wavelength_nm)
+    S = S * factor
     lo = np.asarray(lower if lower is not None else LOWER, dtype=float)
     hi = np.asarray(upper if upper is not None else UPPER, dtype=float)
     if lo.size != 5 or hi.size != 5:
@@ -219,10 +263,123 @@ def control(target: Sequence[float], lam: float = 1e-8,
         "control_names": CONTROL_NAMES,
         "control_units": CONTROL_UNITS,
         "control_meta": CONTROL_META,
+        "wavelength_note": wnote,
         "source": prov["source"],
         "label": prov["label"],
         "note": ("3x5 rank-3: target is reproducible, u is minimum-norm and "
                  "not unique" if prov["source"] == "synthetic-proxy" else
                  "real ZOS-API S: u is minimum-norm; check nullspace for "
                  "unobservable actuator combinations"),
+    }
+
+
+# ===========================================================================
+# 口径 v2: stacked [S_Z; P] 5x5 control model (unique u)
+# ===========================================================================
+
+STACKED_TARGETS = TARGET_NAMES + POINTING_TARGETS      # [Z4, Z8, Z9, th_x, th_y]
+
+
+@lru_cache(maxsize=4)
+def load_full_sensitivity(path: Optional[str] = None) -> Optional[dict]:
+    """Load the measured [S_Z; P] stack; None when the file is absent.
+
+    The file is produced by ``scripts/zos_s_full.py`` (OpticStudio 2023 R1,
+    real prescription): S_Z 3x5 (Z4/Z8/Z9 waves per unit), S_astig 2x5
+    (Z5/Z6 evidence rows), P 2x5 (pointing arcsec per unit).
+    """
+    p = Path(path) if path else FULL_S_PATH
+    if not p.exists():
+        return None
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    sz = np.asarray(doc["S_Z"]["matrix"], dtype=float)
+    ast = np.asarray(doc["S_astig"]["matrix"], dtype=float)
+    pt = np.asarray(doc["P"]["matrix"], dtype=float)
+    if sz.shape != (3, 5) or ast.shape != (2, 5) or pt.shape != (2, 5):
+        raise ValueError("full sensitivity JSON has unexpected shapes")
+    if not (np.all(np.isfinite(sz)) and np.all(np.isfinite(pt))
+            and np.all(np.isfinite(ast))):
+        raise ValueError("full sensitivity JSON contains non-finite values")
+    A = np.vstack([sz, pt])
+    return {"S_Z": sz, "S_astig": ast, "P": pt, "A": A, "doc": doc,
+            "path": str(p)}
+
+
+def sensitivity5() -> dict:
+    """Diagnostics of the stacked [S_Z; P] 5x5 model (rank/condition/uniqueness)."""
+    full = load_full_sensitivity()
+    if full is None:
+        raise FileNotFoundError(
+            f"missing {FULL_S_PATH}; run scripts/zos_s_full.py first")
+    A = full["A"]
+    sv = np.linalg.svd(A, compute_uv=False)
+    rank = int(np.sum(sv > 1e-10 * max(float(sv[0]), 1e-12)))
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else math.inf
+    return {
+        "targets": STACKED_TARGETS,
+        "control_names": CONTROL_NAMES,
+        "control_units": CONTROL_UNITS,
+        "matrix": A.tolist(),
+        "rank": rank,
+        "condition": cond,
+        "singular_values": sv.tolist(),
+        "nullspace": A.shape[1] - rank,
+        "unique_solution": rank == A.shape[1],
+        "source": "zemax-zos-api",
+        "label": "EXTERNAL-CHECK",
+        "zmx": full["doc"].get("zmx", ""),
+        "note": ("[S_Z; P] 5x5 from the real prescription; rank 5 removes the "
+                 "minimum-norm ambiguity of the 3x5 S_Z (口径 v2 point 6)"),
+    }
+
+
+def control5(target5: Sequence[float], use_bounds: bool = True,
+             lower: Optional[Sequence[float]] = None,
+             upper: Optional[Sequence[float]] = None) -> dict:
+    """Solve the stacked model [Z4, Z8, Z9, theta_x, theta_y] = A u.
+
+    With the pointing rows the system is square and full rank, so the solution
+    is unique (verified by the caller through ``rank``/``condition``); bounds
+    are enforced with the same bounded least squares as :func:`control`.
+    """
+    full = load_full_sensitivity()
+    if full is None:
+        raise FileNotFoundError(
+            f"missing {FULL_S_PATH}; run scripts/zos_s_full.py first")
+    z = np.asarray(target5, dtype=float).reshape(-1)
+    if z.size != 5:
+        raise ValueError("target5 must have 5 values (Z4/Z8/Z9/theta_x/theta_y)")
+    A = full["A"]
+    lo = np.asarray(lower if lower is not None else LOWER, dtype=float)
+    hi = np.asarray(upper if upper is not None else UPPER, dtype=float)
+    if lo.size != 5 or hi.size != 5:
+        raise ValueError("bounds must have 5 values")
+    if use_bounds:
+        u, bls_info = bounded_least_squares(A, z, lo, hi)
+        active = int(bls_info["n_active"])
+    else:
+        u = np.linalg.solve(A, z)
+        active = 0
+    pred = A @ u
+    residual = pred - z
+    sv = np.linalg.svd(A, compute_uv=False)
+    rank = int(np.sum(sv > 1e-10 * max(float(sv[0]), 1e-12)))
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else math.inf
+    return {
+        "u": u.tolist(),
+        "target": z.tolist(),
+        "predicted": pred.tolist(),
+        "residual": residual.tolist(),
+        "wavefront_residual_waves": float(np.linalg.norm(residual[:3])),
+        "pointing_residual_arcsec": float(np.linalg.norm(residual[3:])),
+        "rank": rank,
+        "condition": cond,
+        "unique_solution": rank == A.shape[1],
+        "active_constraints": active,
+        "targets": STACKED_TARGETS,
+        "control_names": CONTROL_NAMES,
+        "control_units": CONTROL_UNITS,
+        "source": "zemax-zos-api",
+        "label": "EXTERNAL-CHECK",
+        "note": "unique u from the stacked [S_Z; P] model (口径 v2 point 6)",
     }

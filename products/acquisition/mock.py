@@ -78,14 +78,30 @@ _FALLBACK_S = np.array([
 ], dtype=float)
 
 
-def _control_defaults() -> Tuple[List[str], List[str], np.ndarray]:
-    """懒加载 products.control 的 M2 代理矩阵（失败时用文档化副本）。"""
+def _control_defaults() -> Tuple[List[str], List[str], np.ndarray, str]:
+    """M2 灵敏度真值（P1-1，口径治理）：
+
+    优先加载真实 Zemax S_Z（data/zemax/sensitivity_zemax.json，ZOS-API 实测，
+    标签 EXTERNAL-CHECK）；文件缺失时才回退到代理矩阵 A，并返回
+    source="synthetic-proxy" 供调用方标注 UNVERIFIED——代理矩阵三层错误
+    （focus 符号/量级、tilt 通道虚构），不得再作为 mock 闭环的"正确真值"。
+    """
     try:                                        # pragma: no cover - trivial
-        from products.control.service import (A, CONTROL_NAMES, CONTROL_UNITS)
-        return list(CONTROL_NAMES), list(CONTROL_UNITS), np.asarray(A, float)
+        from products.control.service import (CONTROL_NAMES, CONTROL_UNITS,
+                                              load_real_sensitivity)
+        real = load_real_sensitivity()
+        if real is not None:
+            return (list(CONTROL_NAMES), list(CONTROL_UNITS),
+                    real["S"].copy(), "zemax-zos-api")
+    except Exception:                           # pragma: no cover - trivial
+        pass
+    try:                                        # pragma: no cover - trivial
+        from products.control.service import A, CONTROL_NAMES, CONTROL_UNITS
+        return (list(CONTROL_NAMES), list(CONTROL_UNITS), np.asarray(A, float),
+                "synthetic-proxy")
     except Exception:
         return (list(_FALLBACK_CONTROL_NAMES), list(_FALLBACK_CONTROL_UNITS),
-                _FALLBACK_S.copy())
+                _FALLBACK_S.copy(), "synthetic-proxy")
 
 
 # ===========================================================================
@@ -529,7 +545,13 @@ class MockMechanism(MechanismApi):
                  hysteresis: Optional[Mapping[str, float]] = None,
                  slew_latency_s: float = 0.001,
                  label: str = MOCK_LABEL) -> None:
-        ctrl_names, ctrl_units, default_S = _control_defaults()
+        ctrl_names, ctrl_units, default_S, s_source = _control_defaults()
+        # P1-1 provenance: the truth matrix is the real Zemax S_Z when the
+        # JSON is present; a caller-supplied truth_S or the proxy fallback is
+        # recorded in `truth_source` so mock results are never mistaken for
+        # real-S evidence.
+        self.truth_source = ("caller-supplied" if truth_S is not None
+                             else s_source)
         n = len(names) if names is not None else int(n_dofs)
         if n < 1:
             raise ValueError("MockMechanism needs at least one DOF")
