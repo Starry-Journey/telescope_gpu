@@ -114,9 +114,13 @@ def main():
             err = pred - truth
             rows.append({
                 "sample": i, "method": tag,
-                "rmse_c4": float(abs(err[0])), "rmse_c8": float(abs(err[1])),
-                "rmse_c9": float(abs(err[2])),
-                "wavefront_rms_error": float(abs(np.linalg.norm(pred) - np.linalg.norm(truth))),
+                # P1-5: these are per-sample ABSOLUTE errors (renamed from the
+                # misleading rmse_*); the wavefront error is the coefficient
+                # error norm on the orthonormal Zernike basis, i.e. the wave
+                # RMS error — not |norm(pred)-norm(truth)|.
+                "abs_err_c4": float(abs(err[0])), "abs_err_c8": float(abs(err[1])),
+                "abs_err_c9": float(abs(err[2])),
+                "wavefront_rms_error": float(np.linalg.norm(err)),
                 "nfev": nfev, "time_s": elapsed,
                 "cnn_forward_s": t_cnn if tag == "CNN+BOBYQA" else 0.0,
                 "cost": cost_cnn if tag == "CNN+BOBYQA" else best[2],

@@ -1,0 +1,12 @@
+# C++/CUDA 格式化配置（与现有 src/ 的 4 空格、80 列风格一致）。
+# 用法：clang-format-12 -i src/*.cpp src/*.cu include/telescope/*.hpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 80
+PointerAlignment: Left
+ReferenceAlignment: Left
+SortIncludes: CaseSensitive
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+BreakBeforeBraces: Attach

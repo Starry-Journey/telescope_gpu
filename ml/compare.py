@@ -61,13 +61,15 @@ def main():
     trad = np.stack(trad)
 
     def metrics(pred):
+        # P1-5: per-coefficient error keeps the true RMSE-over-samples
+        # semantics; the wave error is ||pred-truth|| on the orthonormal basis
+        # (the old |norm(pred)-norm(truth)| underestimates it, ~45% here).
         err = pred - truth
         rmse = np.sqrt(np.mean(err ** 2, axis=0))
-        rms_pred = np.sqrt(np.sum(pred ** 2, axis=1))
-        rms_true = np.sqrt(np.sum(truth ** 2, axis=1))
-        wfe = np.sqrt(np.mean((rms_pred - rms_true) ** 2))
+        wfe = np.sqrt(np.mean(np.sum(err ** 2, axis=1)))
         return {"rmse_c4": float(rmse[0]), "rmse_c8": float(rmse[1]),
-                "rmse_c9": float(rmse[2]), "wavefront_rms_error": float(wfe)}
+                "rmse_c9": float(rmse[2]),
+                "wavefront_rms_error": float(wfe)}
 
     m_cnn = metrics(pred_n)
     m_trad = metrics(trad)
@@ -89,7 +91,8 @@ def main():
     labels = ["c4", "c8", "c9"]
     x = np.arange(3)
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    axes[0].bar(x - 0.18, [m_cnn[f"rmse_{k}"] for k in labels], width=0.35, label="CNN")
+    axes[0].bar(x - 0.18, [m_cnn[f"rmse_{k}"] for k in labels], width=0.35,
+                label="CNN")
     axes[0].bar(x + 0.18, [m_trad[f"rmse_{k}"] for k in labels], width=0.35,
                 label="multi-start LSQ")
     axes[0].set_xticks(x, labels)

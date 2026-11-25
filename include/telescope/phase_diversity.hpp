@@ -22,6 +22,15 @@ struct FrameSet {
     std::vector<float> header_backgrounds;
 };
 
+// 文件名里离焦量的量化量子（waves）。文件名按 %+.1f 输出，所以一张帧
+// 只能唯一确定到 ±0.05；加载容差必须严格小于半个量子（见
+// kDefocusHeaderTolerance），否则相邻量子步进的帧正好落在边界上。
+constexpr float kDefocusNameQuantum = 0.1f;
+// 头部离焦校验容差。必须 < kDefocusNameQuantum/2：若取满 0.05，请求 0.75
+// 时文件名落到 +0.8，而一张真值 0.80 的帧与请求正好差 0.05，float 舍入
+// 决定是否通过。0.049 留出 1e-3 的 guard，语义仍是“同名帧”。
+constexpr float kDefocusHeaderTolerance = 0.049f;
+
 // 从 data_dir 读取 forward_generate 写出的 FITS。
 // 文件名约定：star_field_theta%03d_defocus_%+.1fwaves.fits。
 bool load_frame_set(const std::string& data_dir,
@@ -66,6 +75,10 @@ struct SolveResult {
     // 不一致，反演结果是伪解。留 1% 余量是因为噪声数据上多拟合 3 个参数
     // 本来就会让代价略微下降。该诊断来自原始项目，保留并做成显式字段。
     bool pseudo_solution = false;
+    // 与 pseudo_solution 对称的方向（D3）：若 final cost 比 cost(true) 高
+    // 超过 1%，说明优化器没有落到真解附近（起点不足 / 粗搜预算被截断 /
+    // 解触到边界）。此时系数误差主要由优化器解释，不能当作模型误差。
+    bool underfit_solution = false;
     // 整个 solve() 期间调用正向模型的次数，用于性能/收敛分析。
     long long evaluations = 0;
 };

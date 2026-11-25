@@ -356,3 +356,8 @@ README.md                          文件说明 + 放回 data/ 的方法 + 标�
 ```
 
 复现：`py -3.13 scripts\package_sim_inputs.py`
+
+> 数据版本说明：`data/zemax/sensitivity_rayoptics_legacy.json` 是早期
+> rayoptics 近似矩阵，**仅作对照保留**（文件名带 `_legacy`，JSON 内有
+> `_note` 说明来源）。任何结论都必须用 `sensitivity_zemax.json`（3×5 实测
+> `S_Z`）或 `sensitivity_zemax_full.json`（5×5 堆叠 `[S_Z; P]`）。

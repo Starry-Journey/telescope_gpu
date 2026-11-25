@@ -18,6 +18,8 @@ from pathlib import Path
 import numpy as np
 import poppy
 
+from products.optics.forward import center_psf
+
 WAVE = 500e-9
 DEFOCUS = [-2.0, -1.0, 0.0, 1.0, 2.0]
 
@@ -35,12 +37,12 @@ def make_psf(defocus: float, n: int) -> np.ndarray:
     img = np.asarray(hdul[0].data, dtype=float)
     img = np.clip(img, 0, None)
     img /= max(float(img.sum()), 1e-30)
-    # detector may produce n+1 pixels; crop/pad to n
-    if img.shape[0] != n or img.shape[1] != n:
-        out = np.zeros((n, n), dtype=float)
-        h = min(n, img.shape[0]); w = min(n, img.shape[1])
-        out[:h, :w] = img[:h, :w]
-        img = out / max(out.sum(), 1e-30)
+    # P2-11: POPPY oversamples the detector by 2x, so `fov_arcsec=2.56`` with
+    # 0.01 arcsec/px returns 512x512, not 256x256!  The old export cropped the
+    # TOP-LEFT n x n block, which kept only the corner of the PSF (the PSF centre
+    # sits at (255.5, 255.5) of the 512 grid) and silently destroyed the frame.
+    # Center-crop instead: the PSF stays centred at ((n-1)/2, (n-1)/2).
+    img = center_psf(img, n)
     return img
 
 
@@ -57,6 +59,9 @@ def main():
             "wavelength_nm": WAVE * 1e9,
             "aperture_m": 2.5, "secondary_m": 0.7,
             "pixelscale_arcsec": 0.01, "synthetic": True,
+            "center_convention": "center-cropped from POPPY's 2x-oversampled "
+                                 "detector grid; centroid at (n//2, n//2), "
+                                 "sub-pixel residual <= 0.5 px (P2-11)",
             "truth_z4_z8_z9": [0.0, 0.0, 0.0]}
     Path(args.out).with_suffix(".json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print("wrote", args.out, stack.shape, "synthetic POPPY PSF")

@@ -116,6 +116,33 @@ class MeasuredSensitivityTest(unittest.TestCase):
         self.assertAlmostEqual(abs(v[-1]), 1.0, places=9)
         np.testing.assert_allclose(v[:3], 0.0, atol=1e-9)
 
+    def test_asymmetric_bracket_p2_1(self):
+        """P2-1: bracket -a1/+a2 (a1 != a2) uses the commanded span as denominator."""
+        a_minus, a_plus = 0.03, 0.05
+        poses, zs = [], []
+        t = 0.0
+        plan = [(None, 0.0), ("d0", a_plus), (None, 0.0),
+                ("d0", -a_minus), (None, 0.0)]
+        for dof, lv in plan:
+            u = np.zeros(3)
+            if dof:
+                u[0] = lv
+            zs.append(STATIC + S3 @ u)
+            poses.append(Pose(dof, lv, DUMMY_FRAMES, timestamp=t))
+            t += 1.0
+        it = iter(zs)
+
+        def inv(frames):
+            z = next(it)
+            return {"zernike": {"Z4": float(z[0]), "Z8": float(z[1]),
+                                "Z9": float(z[2])},
+                    "cost": 0.0, "residual_rms": 0.0}
+
+        r = measure_sensitivity(poses, invert=inv)
+        # exact slope over the asymmetric span
+        np.testing.assert_allclose(np.asarray(r["S"])[:, 0], S3[:, 0],
+                                   atol=1e-10)
+
     def test_cubic_nonlinearity_flagged(self):
         a = 0.05
 
@@ -160,7 +187,7 @@ class ZemaxCrossCheckTest(unittest.TestCase):
         S = np.asarray(doc["matrix"], dtype=float)
         result = {"S": S.tolist(), "terms": doc["targets"],
                   "dofs": doc["controls"]}
-        cmp = compare_with_zemax(result)
+        cmp = compare_with_zemax(result, measured_wavelength_nm=700.0)
         self.assertTrue(cmp["available"])
         self.assertTrue(cmp["comparable"])
         self.assertEqual(cmp["label"], "EXTERNAL-CHECK")
@@ -173,7 +200,7 @@ class ZemaxCrossCheckTest(unittest.TestCase):
         S = np.asarray(doc["matrix"], dtype=float) * 1.5
         result = {"S": S.tolist(), "terms": doc["targets"],
                   "dofs": doc["controls"]}
-        cmp = compare_with_zemax(result)
+        cmp = compare_with_zemax(result, measured_wavelength_nm=700.0)
         self.assertAlmostEqual(cmp["max_abs_rel"], 0.5, places=9)
         focus = cmp["per_column"]["m2_focus"]
         self.assertAlmostEqual(focus["relative_norm_diff"], 0.5, places=9)
@@ -189,7 +216,7 @@ class ZemaxCrossCheckTest(unittest.TestCase):
         keep = [0, 1]                       # Z4 row, Z8 row; focus + decenter_x
         result = {"S": S[keep][:, :2].tolist(), "terms": ["Z4", "Z8"],
                   "dofs": ["m2_focus", "m2_decenter_x"]}
-        cmp = compare_with_zemax(result)
+        cmp = compare_with_zemax(result, measured_wavelength_nm=700.0)
         self.assertEqual(cmp["terms"], ["Z4", "Z8"])
         self.assertEqual(cmp["dofs"], ["m2_focus", "m2_decenter_x"])
         self.assertAlmostEqual(cmp["max_abs_rel"], 0.0, places=12)
@@ -201,6 +228,18 @@ class ZemaxCrossCheckTest(unittest.TestCase):
                                  path="C:/does/not/exist.json")
         self.assertFalse(cmp["available"])
         self.assertIn("note", cmp)
+
+
+    def test_wavelength_alignment_p1_2(self):
+        """P1-2: measured@632.8 vs zemax@700 aligns to ~0 relative difference."""
+        doc = json.loads(self.REAL.read_text(encoding="utf-8"))
+        S = np.asarray(doc["matrix"], dtype=float)
+        lam = 700.0 / 632.8
+        result = {"S": (S * lam).tolist(), "terms": doc["targets"],
+                  "dofs": doc["controls"]}
+        from products.sensitivity.measured import compare_with_zemax
+        cmp = compare_with_zemax(result)   # default measured_wavelength_nm=632.8
+        self.assertLess(cmp["max_abs_rel"], 1e-9)
 
 
 class ClosedLoopPDTest(unittest.TestCase):

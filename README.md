@@ -56,13 +56,27 @@ py -3.13 desktop\qt_app.py
 py -3.13 scripts\run_pipeline.py --elevations 15,45,75 --out results\pipeline\demo
 ```
 
+WSL/Linux（C++/CUDA/HPC 开发）：
+
+```bash
+bash scripts/setup_wsl_dev.sh --verify   # 幂等：apt + .venv + CUDA torch + 自检
+cmake --preset linux-cuda
+cmake --build --preset linux-cuda
+ctest --preset linux-cuda --output-on-failure
+```
+
+环境版本、刻意不装的重复工具与排错见
+[`docs/WSL开发环境.md`](docs/WSL开发环境.md)；HPC/AI4S 差距与路线见
+[`docs/代码审阅-2026-11-22.md`](docs/代码审阅-2026-11-22.md)。
+
 重新生成数据（需要许可）：
 
 ```powershell
 # Zemax 3×5 S
 py -3.13 scripts\zos_sensitivity.py --out data\zemax --surface 4 --delta 0.01
-# Abaqus M1 板级 5 工况
+# Abaqus M1 板级 5 工况（正式数据用 seed=30 —— 缺省会得到 seed=45 的不同网格）
 $env:TEL_ABAQUS_OUT="$PWD\data\fea_cases\abaqus_m1"
+$env:TEL_ABAQUS_SEED='30'
 D:\SIMULIA\Commands\abq2025.bat cae noGUI=scripts\abaqus_m1_whiffletree.py
 ```
 

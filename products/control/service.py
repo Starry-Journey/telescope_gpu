@@ -19,6 +19,7 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
+from products.instrument import DEFAULT_WAVELENGTH_NM
 from products.lsq import bounded_least_squares
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -122,7 +123,32 @@ def _matrix(source: str = "auto") -> tuple[np.ndarray, dict]:
                "zmx": "", "delta": None}
 
 
-def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
+
+
+def _wavelength_scale(s_wavelength_um: float,
+                      target_wavelength_nm: Optional[float]) -> tuple[float, Optional[str]]:
+    """Scale factor taking S (waves @ s_wavelength_um) to waves @ target.
+
+    Orthonormal Zernike coefficients in waves scale as 1/lambda for the same
+    physical surface: S@target = S@lambda_s * lambda_s / lambda_target.
+    Returns (factor, note); factor=1.0 and a warning note when no target is
+    given (legacy behaviour preserved, P1-2).
+    """
+    if target_wavelength_nm is None:
+        return 1.0, (
+            "wavelength mismatch warning: S is in waves @ %.1f nm while the "
+            "control target is normally waves @ %.1f nm; pass "
+            "target_wavelength_nm=%.1f to scale (factor %.4f). Unscaled by "
+            "default (legacy behaviour)." % (
+                s_wavelength_um * 1e3, DEFAULT_WAVELENGTH_NM,
+                DEFAULT_WAVELENGTH_NM, s_wavelength_um * 1e3 / DEFAULT_WAVELENGTH_NM))
+    factor = s_wavelength_um * 1e3 / float(target_wavelength_nm)
+    note = ("S scaled by %.6f from waves @ %.1f nm to waves @ %.1f nm" % (
+        factor, s_wavelength_um * 1e3, float(target_wavelength_nm)))
+    return factor, note
+
+def sensitivity(step: float = 1e-3, source: str = "auto",
+                target_wavelength_nm: Optional[float] = None) -> dict:
     """Central-difference S at u=0 (proxy) or the measured Zemax file.
 
     With source="auto" the real ZOS-API matrix is used when present; the
@@ -131,6 +157,12 @@ def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
     if not (0.0 < step < 0.1):
         raise ValueError("step must be in (0, 0.1)")
     S, prov = _matrix(source)
+    s_um = None
+    if prov.get("source") == "zemax-zos-api":
+        full = load_real_sensitivity()
+        s_um = (full["doc"].get("wavelength_um") if full else None) or 0.7
+    factor, wnote = _wavelength_scale(s_um or 0.7, target_wavelength_nm)
+    S = S * factor
     if prov["source"] == "synthetic-proxy":
         base = np.zeros(5)
         cols = []
@@ -156,6 +188,7 @@ def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
         "singular_values": sv.tolist(),
         "nullspace": 5 - rank,
         "unit": "waves / (mm or mrad)",
+        "wavelength_note": wnote,
         "source": prov["source"],
         "label": prov["label"],
         "zmx": prov["zmx"],
@@ -167,7 +200,8 @@ def sensitivity(step: float = 1e-3, source: str = "auto") -> dict:
 def control(target: Sequence[float], lam: float = 1e-8,
             use_bounds: bool = True, lower: Optional[Sequence[float]] = None,
             upper: Optional[Sequence[float]] = None,
-            source: str = "auto") -> dict:
+            source: str = "auto",
+            target_wavelength_nm: Optional[float] = None) -> dict:
     """Weighted least squares + Tikhonov, on the real or proxy S.
 
     With ``use_bounds=True`` the box constraints ``lower <= u <= upper`` are
@@ -183,6 +217,12 @@ def control(target: Sequence[float], lam: float = 1e-8,
     if lam < 0:
         raise ValueError("lambda must be >= 0")
     S, prov = _matrix(source)
+    s_um = None
+    if prov.get("source") == "zemax-zos-api":
+        full = load_real_sensitivity()
+        s_um = (full["doc"].get("wavelength_um") if full else None) or 0.7
+    factor, wnote = _wavelength_scale(s_um or 0.7, target_wavelength_nm)
+    S = S * factor
     lo = np.asarray(lower if lower is not None else LOWER, dtype=float)
     hi = np.asarray(upper if upper is not None else UPPER, dtype=float)
     if lo.size != 5 or hi.size != 5:
@@ -223,6 +263,7 @@ def control(target: Sequence[float], lam: float = 1e-8,
         "control_names": CONTROL_NAMES,
         "control_units": CONTROL_UNITS,
         "control_meta": CONTROL_META,
+        "wavelength_note": wnote,
         "source": prov["source"],
         "label": prov["label"],
         "note": ("3x5 rank-3: target is reproducible, u is minimum-norm and "

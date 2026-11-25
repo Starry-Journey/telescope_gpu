@@ -108,12 +108,13 @@ class AstigmatismPlanTest(unittest.TestCase):
             dofs=["m2_focus", "m2_decenter_x", "astig_warp"],
         )
         expected = math.degrees(math.atan2(3.0, 4.0))
+        axis_expected = math.degrees(math.atan2(4.0, 3.0)) / 2.0   # P1-3
         self.assertEqual(plan["label"], "FEA-PROVISIONAL")
         self.assertTrue(plan["warning"])
         self.assertTrue(plan["recommendation"])
         self.assertAlmostEqual(plan["orientation_deg"], expected, places=9)
         self.assertAlmostEqual(plan["astigmatism_axis_deg"],
-                               0.5 * expected, places=9)
+                               axis_expected, places=9)
         self.assertAlmostEqual(plan["magnitude_nm"], 5.0, places=12)
         self.assertIn("astig_warp", plan["can_correct"])
         self.assertIn("m2_focus", plan["cannot_correct"])
@@ -129,9 +130,20 @@ class AstigmatismPlanTest(unittest.TestCase):
         plan = obs.astigmatism_plan({"Z5_nm": -1.0, "Z6_nm": -1.0},
                                     dofs=["astig_warp"])
         self.assertAlmostEqual(plan["orientation_deg"], -135.0, places=9)
-        # axis = orientation/2 mod 180
+        # P1-3: axis = 0.5*atan2(Z5, Z6) = 0.5*(-135) mod 180 = 112.5
         self.assertAlmostEqual(plan["astigmatism_axis_deg"], 112.5, places=9)
         self.assertEqual(plan["orientation_deg_360"], 225.0)
+
+    def test_axis_analytical_cases_p1_3(self):
+        """P1-3 acceptance: pure-Z6 -> 0 deg, pure-Z5 -> 45 deg, table 8-3 -> 166.15."""
+        a = obs._astig_from_terms(0.0, 2.0)      # pure Z6 > 0
+        self.assertAlmostEqual(a["astigmatism_axis_deg"], 0.0, places=9)
+        b = obs._astig_from_terms(2.0, 0.0)      # pure Z5 > 0
+        self.assertAlmostEqual(b["astigmatism_axis_deg"], 45.0, places=9)
+        c = obs._astig_from_terms(-1.3643, 2.5988)   # report table 8-3 data
+        self.assertAlmostEqual(c["astigmatism_axis_deg"], 166.15, places=2)
+        # legacy phase orientation is unchanged by the fix
+        self.assertAlmostEqual(c["orientation_deg"], 117.70, places=2)
 
     def test_magnitude_phase_input(self):
         plan = obs.astigmatism_plan(

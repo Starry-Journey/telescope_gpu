@@ -27,7 +27,8 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):      # pragma: no cover - py<3.7/redirected
         pass
 
-SKIP_DIRS = {"docs/archive", "archive", "results", ".git", "build", "dist", "node_modules"}
+SKIP_DIRS = {"docs/archive", "archive", "results", ".git", "build", "dist",
+             "node_modules", ".venv", ".pytest_cache"}
 # roadmap doc lists planned (not yet existing) files by design
 SKIP_FILES = {"docs/后续优化方向.md"}
 SKIP_PREFIXES = ("--", "-", "python", "pip", "uvicorn", "ctest", "cmake", "git ",

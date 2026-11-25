@@ -69,3 +69,5 @@ release/
 # ---- runtime evidence (regenerable) ----
 results/pipeline/
 results/bench/
+.env
+.aider*

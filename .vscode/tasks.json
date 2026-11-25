@@ -1,0 +1,117 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cmake: configure (linux-cpu)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--preset", "linux-cpu"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "cmake: build (linux-cpu)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "--preset", "linux-cpu"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": ["$gcc"],
+            "group": { "kind": "build", "isDefault": true }
+        },
+        {
+            "label": "cmake: test (linux-cpu)",
+            "type": "shell",
+            "command": "ctest",
+            "args": ["--preset", "linux-cpu", "--output-on-failure"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "group": { "kind": "test", "isDefault": true }
+        },
+        {
+            "label": "cmake: configure (linux-cuda)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--preset", "linux-cuda"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "cmake: build (linux-cuda)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "--preset", "linux-cuda"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "cmake: test (linux-cuda)",
+            "type": "shell",
+            "command": "ctest",
+            "args": ["--preset", "linux-cuda", "--output-on-failure"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "python: test products",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": ["-m", "unittest", "discover", "-s", "products/tests", "-v"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "python: test pipeline",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": ["-m", "unittest", "discover", "-s", "pipeline/tests", "-v"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "python: test desktop (offscreen)",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": ["-m", "unittest", "discover", "-s", "desktop/tests", "-v"],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "QT_QPA_PLATFORM": "offscreen" }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "python: e2e smoke (offscreen)",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": ["desktop/e2e_smoke.py"],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "QT_QPA_PLATFORM": "offscreen" }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "lint: ruff",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": ["-m", "ruff", "check", "."],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "docs: check links",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": ["scripts/check_doc_links.py"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "env: setup wsl dev",
+            "type": "shell",
+            "command": "bash",
+            "args": ["scripts/setup_wsl_dev.sh"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        }
+    ]
+}

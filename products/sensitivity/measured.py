@@ -84,7 +84,7 @@ def measure_sensitivity(poses: Sequence[Pose],
                         terms: Sequence[str] = DEFAULT_TERMS,
                         defocus: Sequence[float] = DEFAULT_DEFOCUS,
                         invert_kwargs: Optional[dict] = None,
-                        rank_tol: float = 1e-8,
+                        rank_tol: float = 1e-12,
                         label: str = "UNVERIFIED",
                         cross_check: bool = False,
                         zemax_path=None) -> dict:
@@ -185,8 +185,11 @@ def measure_sensitivity(poses: Sequence[Pose],
             if lv <= 0:
                 raise ValueError(f"dof {dof!r}: excitation level is 0")
             if sign == "both":
-                col = (mean_dz[1] - mean_dz[0]) / (2.0 * lv)
-                std_col = np.sqrt(std_dz[1] ** 2 + std_dz[0] ** 2) / (2.0 * lv)
+                # P2-1: the bracket may be asymmetric (-a1, +a2, a1 != a2);
+                # the slope denominator is the commanded span, not 2*|level|.
+                denom = levels[1] - levels[0]          # > 0 by construction
+                col = (mean_dz[1] - mean_dz[0]) / denom
+                std_col = np.sqrt(std_dz[1] ** 2 + std_dz[0] ** 2) / denom
                 hyst[dof] = float(
                     np.linalg.norm(mean_dz[1] + mean_dz[0])
                     / (np.linalg.norm(mean_dz[1] - mean_dz[0]) + 1e-12))
@@ -241,7 +244,8 @@ ZEMAX_S_PATH = Path(__file__).resolve().parents[2] / "data" / "zemax" / "sensiti
 
 
 def compare_with_zemax(result: dict, path=None,
-                       rel_floor: float = 1e-6) -> dict:
+                       rel_floor: float = 1e-6,
+                       measured_wavelength_nm: float = 632.8) -> dict:
     """Per-column comparison of a measured S against the Zemax ZOS-API S.
 
     The measured matrix answers "what the instrument really does"; Zemax is the
@@ -251,6 +255,14 @@ def compare_with_zemax(result: dict, path=None,
     Relative difference is (S_meas - S_zemax) / |S_zemax| per entry; columns
     whose Zemax norm is below `rel_floor` are reported as unobservable instead
     of producing inf.
+
+    Wavelength alignment (P1-2): the Zemax S is waves @ 0.7 um (from the JSON)
+    while the measured PD coefficients are waves @ ``measured_wavelength_nm``
+    (default 632.8 nm, the project laser wavelength).  The Zemax matrix is
+    therefore scaled by lambda_zemax / lambda_measured before the comparison,
+    so both sides describe the same physical surface in the same units.
+    Pass ``measured_wavelength_nm=700`` to compare against an unscaled Zemax
+    matrix verbatim (used by the unit tests).
     """
     p = Path(path) if path else ZEMAX_S_PATH
     if not p.exists():
@@ -281,6 +293,11 @@ def compare_with_zemax(result: dict, path=None,
     zc = [zemax_dofs.index(d) for d in dofs]
     A = S_meas[np.ix_(ri, ci)]
     B = S_zemax[np.ix_(zr, zc)]
+    # P1-2 wavelength alignment: bring the Zemax waves@lambda_zemax matrix to
+    # the measured wavelength before differencing (waves ~ 1/lambda).
+    lam_z = float(doc.get("wavelength_um", 0.7)) * 1e3      # nm
+    if measured_wavelength_nm and lam_z > 0:
+        B = B * (lam_z / float(measured_wavelength_nm))
 
     denom = np.abs(B)
     rel = np.full(B.shape, np.nan)
@@ -402,10 +419,20 @@ def demo_synthetic(noise: float = 3e-4, seed: int = 11, n: int = 32,
     the S/control tab uses.  `noise` is per-pixel on the *normalised* PSF; the
     PD accuracy scan says n=32 with noise <=3e-4 keeps z errors ~0.01 waves.
     """
-    from products.control.service import A, CONTROL_NAMES
+    # P1-1 (口径治理): the closed-loop truth is the REAL Zemax S_Z, not the
+    # deprecated proxy matrix.  Explicit failure when the measurement JSON is
+    # absent (it is committed; a missing file means a broken checkout).
+    from products.control.service import CONTROL_NAMES, load_real_sensitivity
     from products.pd.service import invert_psf
 
-    poses = synthetic_poses(A, CONTROL_NAMES, amplitude=amplitude, n=n,
+    real = load_real_sensitivity()
+    if real is None:
+        raise FileNotFoundError(
+            "demo_synthetic needs data/zemax/sensitivity_zemax.json (real "
+            "ZOS-API S_Z); run scripts/zos_sensitivity.py. The deprecated "
+            "proxy matrix is not an acceptable closed-loop truth.")
+    S_true = real["S"]
+    poses = synthetic_poses(S_true, CONTROL_NAMES, amplitude=amplitude, n=n,
                             noise=noise, seed=seed)
     r = measure_sensitivity(
         poses,
@@ -414,11 +441,12 @@ def demo_synthetic(noise: float = 3e-4, seed: int = 11, n: int = 32,
                                      seed=seed),
         label="SYNTHETIC-VALIDATED")
     S_meas = np.asarray(r["S"])
-    err = S_meas - A
-    r["S_true"] = A.tolist()
+    err = S_meas - S_true
+    r["S_true"] = S_true.tolist()
+    r["truth_source"] = "zemax-zos-api"
     r["err_rms"] = float(np.sqrt(np.mean(err ** 2)))
-    r["corr"] = float(np.corrcoef(S_meas.ravel(), A.ravel())[0, 1])
+    r["corr"] = float(np.corrcoef(S_meas.ravel(), S_true.ravel())[0, 1])
     r["dof_names"] = list(CONTROL_NAMES)
-    r["note"] = ("closed loop on synthetic frames; S_true = documented M2 "
-                 "proxy; NOT a hardware measurement")
+    r["note"] = ("closed loop on synthetic frames; S_true = real Zemax S_Z "
+                 "(EXTERNAL-CHECK); NOT a hardware measurement")
     return r
