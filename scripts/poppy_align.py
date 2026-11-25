@@ -14,6 +14,7 @@ import numpy as np
 from scipy.ndimage import zoom
 
 from ml.traditional import forward_psf_numpy
+from products.optics.forward import center_psf
 from products.pd.batch import run_batch
 
 D = [-2.0, -1.0, 0.0, 1.0, 2.0]
@@ -51,7 +52,7 @@ def main():
     poppy = np.load(args.poppy)
     rows, aligned = [], []
     for i, d in enumerate(D):
-        p = poppy[i]
+        p = center_psf(poppy[i], args.n)
         o = forward_psf_numpy([0, 0, 0], d, n=args.n, obscuration=0.28)
         ratio = fwhm(o) / max(fwhm(p), 1e-9)
         z = zoom(p, ratio, order=1)

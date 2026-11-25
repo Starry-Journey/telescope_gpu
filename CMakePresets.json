@@ -1,0 +1,111 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "linux-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_CUDA_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_IGNORE_PATH": "/mnt/c;/mnt/d;/mnt/e;/mnt/f;/mnt/g",
+        "CMAKE_IGNORE_PREFIX_PATH": "/mnt/c;/mnt/d;/mnt/e;/mnt/f;/mnt/g",
+        "TEL_BUILD_TESTS": "ON",
+        "TEL_PYTHON_EXECUTABLE": "${sourceDir}/.venv/bin/python",
+        "Python_EXECUTABLE": "${sourceDir}/.venv/bin/python",
+        "PYBIND11_FINDPYTHON": "ON",
+        "PIPELINE_PYTHON_EXECUTABLE": "${sourceDir}/.venv/bin/python",
+        "TEL_NUMERICS_USE_SYSTEM_GTEST": "ON"
+      }
+    },
+    {
+      "name": "linux-cpu",
+      "inherits": "linux-base",
+      "displayName": "Linux CPU (no CUDA) + numerics",
+      "description": "无需 GPU：CPU 库、数值库、GTest、pybind11 与 Python 管线测试",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TEL_BUILD_CUDA": "OFF",
+        "TEL_BUILD_NUMERICS": "ON",
+        "TEL_BUILD_FRAMEWORK": "OFF"
+      }
+    },
+    {
+      "name": "linux-cuda",
+      "inherits": "linux-base",
+      "displayName": "Linux CUDA sm_86 (RTX 3050)",
+      "description": "CUDA 正向模型/相位差求解器 + GPU 测试；换卡时覆盖 CMAKE_CUDA_ARCHITECTURES",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "TEL_BUILD_CUDA": "ON",
+        "TEL_BUILD_NUMERICS": "OFF",
+        "TEL_BUILD_FRAMEWORK": "OFF",
+        "CMAKE_CUDA_ARCHITECTURES": "86"
+      }
+    },
+    {
+      "name": "linux-framework",
+      "inherits": "linux-base",
+      "displayName": "Linux framework + numerics",
+      "description": "反演/控制框架垂直切片（CPU，不依赖 CUDA）",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TEL_BUILD_CUDA": "OFF",
+        "TEL_BUILD_NUMERICS": "ON",
+        "TEL_BUILD_FRAMEWORK": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-cpu",
+      "configurePreset": "linux-cpu",
+      "jobs": 12
+    },
+    {
+      "name": "linux-cuda",
+      "configurePreset": "linux-cuda",
+      "jobs": 2
+    },
+    {
+      "name": "linux-framework",
+      "configurePreset": "linux-framework",
+      "jobs": 12
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-cpu",
+      "configurePreset": "linux-cpu",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-cuda",
+      "configurePreset": "linux-cuda",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-framework",
+      "configurePreset": "linux-framework",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "framework"
+        }
+      }
+    }
+  ]
+}

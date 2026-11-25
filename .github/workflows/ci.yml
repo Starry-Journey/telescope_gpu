@@ -87,7 +87,11 @@ jobs:
             build-essential cmake libeigen3-dev libgtest-dev libbenchmark-dev \
             pybind11-dev python3-dev python3-numpy
       - name: Configure numerics
-        run: cmake -S numerics -B build-numerics -DCMAKE_BUILD_TYPE=Release
+        # 与本地 CMakePresets 对齐：装了系统 GTest 就用系统包，避免每次
+        # FetchContent 重新下载同一份 googletest。
+        run: >
+          cmake -S numerics -B build-numerics -DCMAKE_BUILD_TYPE=Release
+          -DTEL_NUMERICS_USE_SYSTEM_GTEST=ON
       - name: Build numerics
         run: cmake --build build-numerics -j"$(nproc)"
       - name: GTest

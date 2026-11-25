@@ -59,6 +59,50 @@ def forward_psf_numpy(coeff: Sequence[float], defocus: float,
     return psf
 
 
+def center_psf(img: np.ndarray, n: int | None = None) -> np.ndarray:
+    """Re-centre a PSF so its centroid sits at (n/2, n/2).
+
+    POPPY's detector grid is not guaranteed to place the PSF on the same pixel
+    as the ``np.fft.fftshift`` output of :func:`forward_psf_numpy`; the raw
+    ``data/psf/poppy_defocus_256.npy`` frames actually peak at 202/255 of 256
+    (centroid 153-248).  Comparing or inverting such frames without
+    re-centring biases every FWHM/SSE and the recovered defocus.  The shift is
+    integer, so a sub-pixel residual <= 0.5 px remains; both
+    ``scripts/poppy_psf.py`` (export) and ``scripts/poppy_compare.py``
+    (comparison) use this one convention.
+    """
+    img = np.asarray(img, dtype=float)
+    if n is not None and img.shape != (n, n):
+        padded = np.zeros((n, n), dtype=float)
+        h = min(n, img.shape[0])
+        w = min(n, img.shape[1])
+        y0 = (img.shape[0] - h) // 2
+        x0 = (img.shape[1] - w) // 2
+        y1 = (n - h) // 2
+        x1 = (n - w) // 2
+        padded[y1:y1 + h, x1:x1 + w] = img[y0:y0 + h, x0:x0 + w]
+        img = padded
+    total = float(img.sum())
+    if not np.isfinite(total) or total <= 0:
+        return img
+    y, x = np.indices(img.shape)
+    # One np.roll is not enough: the part of the PSF that wraps around the
+    # border leaves the *measured* centroid short by 256*wrapped_fraction, so
+    # the shift must be re-measured until it is zero (typically 2-3 passes).
+    for _ in range(32):
+        total = float(img.sum())
+        cy = float((img * y).sum() / total)
+        cx = float((img * x).sum() / total)
+        if not (np.isfinite(cy) and np.isfinite(cx)):
+            break
+        sy = int(round(img.shape[0] / 2.0 - cy))
+        sx = int(round(img.shape[1] / 2.0 - cx))
+        if sy == 0 and sx == 0:
+            break
+        img = np.roll(img, (sy, sx), axis=(0, 1))
+    return img / max(float(img.sum()), 1e-30)
+
+
 def forward_stack_numpy(coeff: Sequence[float], n: int = 64,
                         defocus=(-2.0, -1.0, 0.0, 1.0, 2.0),
                         obscuration: float = 0.0,

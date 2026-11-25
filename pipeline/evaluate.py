@@ -58,6 +58,9 @@ def match_by_frame(detections: Sequence[Dict[str, float]], truth: Sequence[Dict[
         "n_matched": len(matches),
         "n_false": n_false,
         "detection_rate": len(matches) / n_truth if n_truth else 0.0,
+        # 口径：未匹配检测 / 全部检测（matching 口径）。它不是逐帧虚警
+        # 概率，也不能直接和“每帧至少一个虚警”的率混淆；逐帧效果见
+        # 轨迹确认前后的 n_detections / detection_rate。
         "false_alarm_rate": n_false / n_det if n_det else 0.0,
         "position_rmse_pix": float(np.sqrt(np.mean([m["dist"] ** 2 for m in matches]))) if matches else float("nan"),
         "matches": matches,

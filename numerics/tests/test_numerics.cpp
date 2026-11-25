@@ -137,7 +137,7 @@ TEST(Ode, HarmonicOscillatorSystem) {
             d[1] = -y[0];
             return d;
         },
-        Vector{{1.0, 0.0}}, 0.0, 2.0 * M_PI, 0.01);
+        (Vector(2) << 1.0, 0.0).finished(), 0.0, 2.0 * M_PI, 0.01);
     ASSERT_FALSE(r.states.empty());
     EXPECT_NEAR(r.states.back()[0], 1.0, 2e-6);
     EXPECT_NEAR(r.states.back()[1], 0.0, 2e-6);

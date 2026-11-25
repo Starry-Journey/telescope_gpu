@@ -76,6 +76,11 @@ int main(int argc, char** argv) {
                         "正向模型与反演变量集合不一致，结果是伪解。\n"
                         "检查 forward_generate 与 inverse_solve 的 Zernike 项集合。\n");
         }
+        if (result.underfit_solution) {
+            std::printf("\nWARNING: final cost 比 cost(true) 高超过 1%%。\n"
+                        "优化器没有收敛到真解（起点不足 / 粗搜预算截断 / 触边），\n"
+                        "此时系数误差主要来自优化器，不能当作模型误差。\n");
+        }
 
         // 兼容旧版可视化脚本：6 个数字，一行。
         bool result_written = false;
@@ -113,6 +118,7 @@ int main(int argc, char** argv) {
             std::fprintf(fp, "cost_zero %.6e\n", result.cost_zero);
             std::fprintf(fp, "cost_final %.6e\n", result.cost);
             std::fprintf(fp, "pseudo_solution %d\n", result.pseudo_solution ? 1 : 0);
+            std::fprintf(fp, "underfit_solution %d\n", result.underfit_solution ? 1 : 0);
             std::fprintf(fp, "wavefront_rms_lambda %.6f\n", result.wavefront_rms);
             std::fprintf(fp, "# slot noll truth recovered error\n");
             for (int k : active) {

@@ -58,7 +58,10 @@ std::vector<float> copy_to_host(const DeviceBuffer<float>& buffer) {
 
 TEST(gpu_psf_matches_cpu_reference) {
     if (!cuda_available()) {
-        std::printf("  (skipped: no CUDA device)\n");
+        // P2-16: silent skip made ctest record PASS with zero GPU
+        // coverage (false green).
+        test::fail(__FILE__, __LINE__,
+                     "no CUDA device, but linux-cuda requires one");
         return;
     }
 
@@ -214,6 +217,8 @@ TEST(solver_recovers_truth_end_to_end) {
 
     CHECK(result.ok);
     CHECK(!result.pseudo_solution);
+    // D3: 无噪声仿真上真解应可达，代价不应明显高于 cost(true)。
+    CHECK(!result.underfit_solution);
     CHECK_NEAR(result.coeffs[2], truth[2], 0.05);
     CHECK_NEAR(result.coeffs[6], truth[6], 0.05);
     CHECK_NEAR(result.coeffs[7], truth[7], 0.05);

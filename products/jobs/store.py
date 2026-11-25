@@ -72,15 +72,20 @@ class JobStore:
         return [self.get(r[0]) for r in rows]
 
     def claim(self, kind: str, worker: str) -> Optional[dict]:
+        """Atomically claim one queued job (P1-10).
+
+        The old SELECT-then-UPDATE pair raced under multiple workers.  The
+        claim is now one conditional UPDATE (guarded by status='queued') whose
+        RETURNING row decides ownership, so exactly one claimer wins per job.
+        """
         with self._lock, self._con() as con:
-            row = con.execute("SELECT id FROM jobs WHERE kind=? AND status='queued' ORDER BY created LIMIT 1",
-                              (kind,)).fetchone()
-            if not row:
-                return None
-            jid = row[0]
-            con.execute("UPDATE jobs SET status='running', worker=?, updated=? WHERE id=?",
-                        (worker, time.time(), jid))
-        return self.get(jid)
+            cur = con.execute(
+                "UPDATE jobs SET status='running', worker=?, updated=? "
+                "WHERE id=(SELECT id FROM jobs WHERE kind=? AND status='queued' "
+                "ORDER BY created LIMIT 1) AND status='queued' RETURNING id",
+                (worker, time.time(), kind))
+            row = cur.fetchone()
+        return self.get(row[0]) if row else None
 
     def complete(self, jid: str, result: dict) -> None:
         with self._lock, self._con() as con:

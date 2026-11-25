@@ -120,6 +120,27 @@ TEST(config_rejects_huge_flux) {
     std::filesystem::remove(path);
 }
 
+TEST(config_defocus_filename_quantization) {
+    // D5: 文件名按 %+.1f 量化；1.04 和 1.0 会落到同一个文件名，必须拒绝。
+    const std::string path = write_temp_config(
+        "telescope_test_defocus_quant.conf",
+        "img_size = 64\n"
+        "oversample = 2\n"
+        "defocus = -1, 0, 1, 1.04\n");
+    CHECK_THROWS(load_config_file(path));
+    std::filesystem::remove(path);
+
+    // 同一网格上相邻的 0.1 步进是合法的。
+    const std::string ok_path = write_temp_config(
+        "telescope_test_defocus_quant_ok.conf",
+        "img_size = 64\n"
+        "oversample = 2\n"
+        "defocus = -1, 0, 1, 1.1\n");
+    const Config cfg = load_config_file(ok_path);
+    CHECK(cfg.defocus.size() == 4);
+    std::filesystem::remove(ok_path);
+}
+
 TEST(config_default_data_dir) {
     Config cfg;
     cfg.theta_deg = 45.0f;

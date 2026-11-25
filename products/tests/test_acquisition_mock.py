@@ -60,7 +60,12 @@ class MockMechanismTest(unittest.TestCase):
         mech.move("m2_focus", 0.05)
         state = mech.wavefront_state()
         self.assertEqual(set(state), set(MOCK_CAMERA_TERMS))
-        self.assertGreater(state["Z4"], 0.1)
+        # 口径 v2 / P1-1: truth is the real Zemax S_Z (focus -> Z4 = -23.284
+        # waves/mm), so a +0.05 mm axial move DRIVES Z4 negative from the
+        # +0.1 base state.
+        self.assertLess(state["Z4"], -1.0)
+        self.assertGreater(state["Z8"], -0.01)   # decoupled at this level
+        self.assertIn("truth_source", mech.__dict__)
         kin = mech.kinematics()
         self.assertIn("truth_S", kin)
         self.assertEqual(kin["label"], "SYNTHETIC-VALIDATED")
@@ -142,7 +147,8 @@ class MockRigTest(unittest.TestCase):
         self.assertGreater(low, high)
         rig.mechanism.move("m2_focus", 0.05)
         moved = rig.state()["Z4"]
-        self.assertGreater(moved, high)
+        # real S_Z: focus drives Z4 NEGATIVE (was proxy +4.04 sign, 口径 v2)
+        self.assertLess(moved, -1.0)
         summary = rig.summary()
         self.assertEqual(summary["label"], "SYNTHETIC-VALIDATED")
         self.assertEqual(summary["mode"], "mock")

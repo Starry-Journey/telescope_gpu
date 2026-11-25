@@ -1,5 +1,7 @@
 #include "telescope/config.hpp"
 
+#include "telescope/phase_diversity.hpp"
+
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -147,6 +149,20 @@ void validate(const Config& cfg) {
     }
     for (float d : cfg.defocus) {
         if (!std::isfinite(d)) throw std::runtime_error("defocus values must be finite");
+    }
+    // D5: 离焦帧文件名按 %+.1f 量化到 kDefocusNameQuantum 网格。两个请求
+    // 值若量化到同一文件名，就会把不同离焦的帧读成同一张图，只剩头部校验
+    // 报一侧不匹配；这里在解析阶段直接拒绝。
+    for (std::size_t i = 0; i < cfg.defocus.size(); ++i) {
+        const float qi = std::round(cfg.defocus[i] / kDefocusNameQuantum);
+        for (std::size_t j = i + 1; j < cfg.defocus.size(); ++j) {
+            if (qi == std::round(cfg.defocus[j] / kDefocusNameQuantum)) {
+                throw std::runtime_error(
+                    "defocus values " + std::to_string(cfg.defocus[i]) + " and " +
+                    std::to_string(cfg.defocus[j]) +
+                    " share the same 0.1-wave FITS filename (D5)");
+            }
+        }
     }
     // FITS 头部卡片是 STAR00..STAR99，超过 100 颗星写不进去。
     if (cfg.star_count < 0 || cfg.star_count > 100) {

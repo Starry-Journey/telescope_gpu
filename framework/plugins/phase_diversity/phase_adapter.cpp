@@ -102,6 +102,7 @@ Solution PhaseDiversityInverseSolver::solve(const Observation& observation,
         out.diagnostics["cost_zero"] = r.cost_zero;
         out.diagnostics["wavefront_rms"] = r.wavefront_rms;
         out.diagnostics["pseudo_solution"] = r.pseudo_solution ? 1.0 : 0.0;
+        out.diagnostics["underfit_solution"] = r.underfit_solution ? 1.0 : 0.0;
 
         const auto& active = telescope::active_zernike_indices();
         out.values.clear();
